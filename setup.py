@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pyfloc",
-    version="0.0.2",
+    version="0.0.3",
     author="Simone Furini",
     author_email="furini.simone@gmail.com",
     description="Data Mining analyses of flowcytometry data",

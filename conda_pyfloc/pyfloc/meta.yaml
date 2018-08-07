@@ -1,5 +1,5 @@
 {% set name = "pyfloc" %}
-{% set version = "0.0.2" %}
+{% set version = "0.0.3" %}
 
 package:
   name: "{{ name|lower }}"
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
-  sha256: 8ce4007bde1083ae07ed4a65e61499deb9a0cb7d9310d8b764deb350bb74854b
+  sha256: 58fc06ff91c1485e0f39c511c87b218fdc5c039edfd610769dc25764f4491b9f
 
 build:
   number: 0
