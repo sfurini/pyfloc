@@ -1,0 +1,43 @@
+{% set name = "pyfloc" %}
+{% set version = "0.0.2" %}
+
+package:
+  name: "{{ name|lower }}"
+  version: "{{ version }}"
+
+source:
+  url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
+  sha256: 8ce4007bde1083ae07ed4a65e61499deb9a0cb7d9310d8b764deb350bb74854b
+
+build:
+  number: 0
+  script: "{{ PYTHON }} -m pip install . --no-deps --ignore-installed --no-cache-dir -vvv "
+
+requirements:
+  host:
+    - pip
+    - python
+  run:
+    - python
+    - numpy
+    - scipy
+    - matplotlib
+    - scikit-learn
+
+test:
+  imports:
+    - pyfloc
+
+
+about:
+  home: https://github.com/pypa/sampleproject
+  license: MIT
+  license_family: MIT
+  license_file: 
+  summary: Data Mining analyses of flowcytometry data
+  doc_url: 
+  dev_url: 
+
+extra:
+  recipe-maintainers:
+    - your-github-id-here

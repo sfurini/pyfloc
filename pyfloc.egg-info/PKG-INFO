@@ -1,0 +1,14 @@
+Metadata-Version: 2.1
+Name: pyfloc
+Version: 0.0.2
+Summary: Data Mining analyses of flowcytometry data
+Home-page: https://github.com/pypa/sampleproject
+Author: Simone Furini
+Author-email: furini.simone@gmail.com
+License: UNKNOWN
+Description: UNKNOWN
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Description-Content-Type: text/markdown
