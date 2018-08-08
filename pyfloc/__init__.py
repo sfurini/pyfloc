@@ -1,3 +1,3 @@
-name = 'pyfloc ahahah'
+name = 'pyfloc'
 
 import pyfloc.cluster

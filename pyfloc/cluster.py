@@ -11,7 +11,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-colors = ['blue', 'green', 'red', 'cyan', "magenta", 'yellow', 'indigo', 'silver', 'tomato', 'gold', 'springgreen', 'tan', 'cadetblue', 'aqua', 'khaki', 'indianred', 'brown', 'lime', 'ivory', 'lightsalmon', 'teal']
+colors = ['blue', 'green', 'red', 'cyan', 'magenta', 'yellow', 'indigo', 'silver', 'tomato', 'gold', 'springgreen', 'tan', 'cadetblue', 'aqua', 'khaki', 'indianred', 'brown', 'lime', 'ivory', 'lightsalmon', 'teal']
 np.set_printoptions(linewidth = np.inf)
 
 class Cluster(object):
@@ -1281,11 +1281,11 @@ def run(mode, trajs, **kwargs):
     """
     labels = kwargs.pop('labels',None)
     if mode == 'Kmeans':
-        C = bamboo.cluster.Kmeans(trajs, labels)
+        C = pyfloc.cluster.Kmeans(trajs, labels)
     elif mode == 'DensityPeaks':
-        C = bamboo.cluster.DensityPeaks(trajs, labels)
+        C = pyfloc.cluster.DensityPeaks(trajs, labels)
     elif mode == 'MeanShift':
-        C = bamboo.cluster.MeanShift(trajs, labels)
+        C = pyfloc.cluster.MeanShift(trajs, labels)
     else:
         raise ValueError('ERROR: mode {0:s} is not implemented'.format(mode))
     C.fit_predict(**kwargs)
