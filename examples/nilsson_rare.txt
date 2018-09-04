@@ -1,0 +1,14 @@
+file_fcs = ./data/flowc/nilsson_rare.fcs	all
+clean = label nan
+remove_outliers = CD110,CD34,CD4,CD19,CD10,CD11b,CD45,CD45RA,CD49fpur,CD38,CD123,CD90bio,CD3
+
+__normalize_mode = arcsin_abs
+__normalize_factor = 5.0
+__normalize_bias = 0.0
+features_normalize = CD110,CD34,CD4,CD19,CD10,CD11b,CD45,CD45RA,CD49fpur,CD38,CD123,CD90bio,CD3
+ 
+__metric = euclidean
+__percents = 2.0
+#__percents = 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.2, 0.5, 1.0, 2.0
+__n_stds_delta = 3.0
+clustering = DensityPeaks	 CD110,CD34,CD4,CD19,CD10,CD11b,CD45,CD45RA,CD49fpur,CD38,CD123,CD90bio,CD3

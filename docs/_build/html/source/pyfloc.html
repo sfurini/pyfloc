@@ -1,0 +1,513 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>pyfloc package &#8212; PyFloc  documentation</title>
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <script type="text/javascript" src="../_static/documentation_options.js"></script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="pyfloc-package">
+<h1>pyfloc package<a class="headerlink" href="#pyfloc-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-pyfloc.cluster">
+<span id="pyfloc-cluster-module"></span><h2>pyfloc.cluster module<a class="headerlink" href="#module-pyfloc.cluster" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="pyfloc.cluster.AffinityPropagation">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">AffinityPropagation</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.AffinityPropagation" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.ClusterSKlearn" title="pyfloc.cluster.ClusterSKlearn"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.ClusterSKlearn</span></code></a></p>
+<dl class="method">
+<dt id="pyfloc.cluster.AffinityPropagation.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.AffinityPropagation.fit" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.Agglomerative">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">Agglomerative</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Agglomerative" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.ClusterSKlearn" title="pyfloc.cluster.ClusterSKlearn"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.ClusterSKlearn</span></code></a></p>
+<dl class="method">
+<dt id="pyfloc.cluster.Agglomerative.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>n_clusters</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Agglomerative.fit" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Agglomerative.predict">
+<code class="descname">predict</code><span class="sig-paren">(</span><em>traj</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Agglomerative.predict" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.Birch">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">Birch</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Birch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.ClusterSKlearn" title="pyfloc.cluster.ClusterSKlearn"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.ClusterSKlearn</span></code></a></p>
+<dl class="method">
+<dt id="pyfloc.cluster.Birch.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>n_clusters</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Birch.fit" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>threshold: float</dt>
+<dd>Il raggio dei subcluster deve essere inferiore</dd>
+<dt>branching_factor: int</dt>
+<dd>Il numero di figli di un nodo deve essere inferiore</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.Cluster">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">Cluster</code><span class="sig-paren">(</span><em>trajs</em>, <em>labels=[]</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class for discretizing trajectories</p>
+<dl class="docutils">
+<dt>Classes inheriting Cluster should define:</dt>
+<dd>fit : method that initialize the clustering algorithm
+predict: method that take as input an analogic trajectory and return its discretized version</dd>
+</dl>
+<dl class="docutils">
+<dt>trajs: list</dt>
+<dd>List of trajectories
+Each trajectory is a np.ndarray with shape: &lt;number of samples&gt; x &lt;number of features&gt;</dd>
+<dt>dtrajs: list </dt>
+<dd><p class="first">Discretized trajectories
+Each discretized trajectory is a np.ndarray with</p>
+<blockquote class="last">
+<div>shape: &lt;number of samples&gt;
+values: index of the cluster for that sample</div></blockquote>
+</dd>
+<dt>clusters_analogic: np.ndarray with shape: &lt;number of bins&gt; x &lt;number of features&gt;</dt>
+<dd>Values used as representative of the clusters when back-converting to analogic values</dd>
+<dt>labels: list</dt>
+<dd><p class="first">Reference labels
+Each element of the list is a np.ndarray with</p>
+<blockquote class="last">
+<div>shape: &lt;number of samples&gt;
+values: label of the sample</div></blockquote>
+</dd>
+<dt>name: str</dt>
+<dd>Name of the method adopted</dd>
+</dl>
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.analogic">
+<code class="descname">analogic</code><span class="sig-paren">(</span><em>dtraj</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.analogic" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the discretized trajectory in analogic form</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.antitransform">
+<code class="descname">antitransform</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.antitransform" title="Permalink to this definition">¶</a></dt>
+<dd><p>Use the discretized trajectories to calculate the analogical trajectories</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.centroids">
+<code class="descname">centroids</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.centroids" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.dtrajs_index_sync">
+<code class="descname">dtrajs_index_sync</code><span class="sig-paren">(</span><em>index_cluster=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.dtrajs_index_sync" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a list with length equal to the number of dtrajs
+The elements of the list are integers equal to:</p>
+<blockquote>
+<div><ul class="simple">
+<li>the first occurance of the cluster index_cluster in the corresponding discretized trajectory</li>
+<li>-1 if the cluster doesn’t occur</li>
+</ul>
+</div></blockquote>
+<p>If index_cluster is None the most populated one is used</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.dump">
+<code class="descname">dump</code><span class="sig-paren">(</span><em>file_name</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.dump" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.fit_predict">
+<code class="descname">fit_predict</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.fit_predict" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.get_mean_label">
+<code class="descname">get_mean_label</code><span class="sig-paren">(</span><em>label</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.get_mean_label" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return mean for sample with this label</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.get_outliers">
+<code class="descname">get_outliers</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.get_outliers" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.get_std_label">
+<code class="descname">get_std_label</code><span class="sig-paren">(</span><em>label</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.get_std_label" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return standard deviation for sample with this label</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.most_populated_cluster">
+<code class="descname">most_populated_cluster</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.most_populated_cluster" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the index of the most populated cluster</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_clusters">
+<code class="descname">n_clusters</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_clusters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of clusters</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_dims">
+<code class="descname">n_dims</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_dims" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of dimensions</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_dims_traj">
+<code class="descname">n_dims_traj</code><span class="sig-paren">(</span><em>traj</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_dims_traj" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of dimensions of the trajectory</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_frames">
+<code class="descname">n_frames</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_frames" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the total number of frames</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_frames_traj">
+<code class="descname">n_frames_traj</code><span class="sig-paren">(</span><em>traj</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_frames_traj" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of frames of the trajectory</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_labels">
+<code class="descname">n_labels</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_labels" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of reference labels</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_samples">
+<code class="descname">n_samples</code><span class="sig-paren">(</span><em>norm=False</em>, <em>list_clusters=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_samples" title="Permalink to this definition">¶</a></dt>
+<dd><p>Calculate the number of samples for each clusters</p>
+<dl class="docutils">
+<dt>norm: bool</dt>
+<dd>If True normalize the output to 1.0, otherwise return the total number of samples</dd>
+<dt>list_clusters: list</dt>
+<dd>If different from None calculate n_samples only for these clusters</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_samples_labels">
+<code class="descname">n_samples_labels</code><span class="sig-paren">(</span><em>list_labels=None</em>, <em>norm=False</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_samples_labels" title="Permalink to this definition">¶</a></dt>
+<dd><p>Calculate the number of samples for each label</p>
+<dl class="docutils">
+<dt>list_clusters: list</dt>
+<dd>If different from None calculate n_samples only for these labels</dd>
+<dt>norm: bool</dt>
+<dd>If True normalize the output to 1.0, otherwise return the total number of samples</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_trajs">
+<code class="descname">n_trajs</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_trajs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of discretized trajectories</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.n_trajs_analogic">
+<code class="descname">n_trajs_analogic</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.n_trajs_analogic" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of analogical trajectories</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.remove_cluster">
+<code class="descname">remove_cluster</code><span class="sig-paren">(</span><em>cluster</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.remove_cluster" title="Permalink to this definition">¶</a></dt>
+<dd><p>Remove cluster from the discretized trajectories: samples after the first occurence of cluster are removed</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.remove_empty_states">
+<code class="descname">remove_empty_states</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.remove_empty_states" title="Permalink to this definition">¶</a></dt>
+<dd><p>Redefine the discretized trajectories if there are clusters without samples</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.reset_trajectories">
+<code class="descname">reset_trajectories</code><span class="sig-paren">(</span><em>trajs=[]</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.reset_trajectories" title="Permalink to this definition">¶</a></dt>
+<dd><p>Change the list of trajectories with trajs and reset dtrajs</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.score">
+<code class="descname">score</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.score" title="Permalink to this definition">¶</a></dt>
+<dd><p>Calculate the score of the clustering algorithm by comparing the clustering results with reference labels</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.set_labels">
+<code class="descname">set_labels</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.set_labels" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the set of reference labels</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.show">
+<code class="descname">show</code><span class="sig-paren">(</span><em>pdf</em>, <em>plot_trajs=False</em>, <em>plot_maps=True</em>, <em>stride=1</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.show" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.show_n_samples">
+<code class="descname">show_n_samples</code><span class="sig-paren">(</span><em>pdf</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.show_n_samples" title="Permalink to this definition">¶</a></dt>
+<dd><p>Plot the number of samples</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.sum_values">
+<code class="descname">sum_values</code><span class="sig-paren">(</span><em>samples</em>, <em>values</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.sum_values" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sums the values &lt;values&gt; of samples &lt;samples&gt; according to the cluster they belong to</p>
+<dl class="docutils">
+<dt>np.array <span class="classifier-delimiter">:</span> <span class="classifier">&lt;number of clusters&gt;</span></dt>
+<dd>values : The sum of &lt;values&gt; for &lt;samples&gt; beloning to each cluster</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Cluster.transform">
+<code class="descname">transform</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Cluster.transform" title="Permalink to this definition">¶</a></dt>
+<dd><p>Perform the discretization of all the trajectories trajectories</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.ClusterSKlearn">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">ClusterSKlearn</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.ClusterSKlearn" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.Cluster" title="pyfloc.cluster.Cluster"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.Cluster</span></code></a></p>
+<dl class="docutils">
+<dt>trajs_merged <span class="classifier-delimiter">:</span> <span class="classifier">np.ndarray</span></dt>
+<dd>Shape: &lt;number of samples&gt; x &lt;number of features&gt;
+All the trajectories combined into a single array</dd>
+<dt>labels_merged: np.ndarray</dt>
+<dd>Shape: &lt;number of samples&gt;
+All the labels combined into a single array</dd>
+</dl>
+<dl class="method">
+<dt id="pyfloc.cluster.ClusterSKlearn.get_index_merged">
+<code class="descname">get_index_merged</code><span class="sig-paren">(</span><em>i_traj</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.ClusterSKlearn.get_index_merged" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return start and end index for trajetory i_traj in merged trajectory</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.ClusterSKlearn.predict">
+<code class="descname">predict</code><span class="sig-paren">(</span><em>traj</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.ClusterSKlearn.predict" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.DensityPeaks">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">DensityPeaks</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.DensityPeaks" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.ClusterSKlearn" title="pyfloc.cluster.ClusterSKlearn"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.ClusterSKlearn</span></code></a></p>
+<dl class="docutils">
+<dt>dtrajs_merged <span class="classifier-delimiter">:</span> <span class="classifier">np.ndarray</span></dt>
+<dd>Shape: &lt;number of samples&gt;
+All the discretized trajectories combined into a single array</dd>
+<dt>halos_merged <span class="classifier-delimiter">:</span> <span class="classifier">np.ndarray</span></dt>
+<dd>Shape: &lt;number of samples&gt;</dd>
+</dl>
+<dl class="method">
+<dt id="pyfloc.cluster.DensityPeaks.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>n_clusters</em>, <em>kernel_radius=None</em>, <em>percent=1.0</em>, <em>pdf=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.DensityPeaks.fit" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>kernel_radius: float</dt>
+<dd>Radius of the gaussian kernel</dd>
+<dt>percent: float</dt>
+<dd>Average percentage of neighbours</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.DensityPeaks.predict">
+<code class="descname">predict</code><span class="sig-paren">(</span><em>traj</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.DensityPeaks.predict" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.GaussianMixture">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">GaussianMixture</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.GaussianMixture" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.ClusterSKlearn" title="pyfloc.cluster.ClusterSKlearn"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.ClusterSKlearn</span></code></a></p>
+<dl class="method">
+<dt id="pyfloc.cluster.GaussianMixture.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>n_clusters</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.GaussianMixture.fit" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.Kmeans">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">Kmeans</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Kmeans" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.ClusterSKlearn" title="pyfloc.cluster.ClusterSKlearn"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.ClusterSKlearn</span></code></a></p>
+<dl class="method">
+<dt id="pyfloc.cluster.Kmeans.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>n_clusters</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Kmeans.fit" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.MeanShift">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">MeanShift</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.MeanShift" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.ClusterSKlearn" title="pyfloc.cluster.ClusterSKlearn"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.ClusterSKlearn</span></code></a></p>
+<dl class="method">
+<dt id="pyfloc.cluster.MeanShift.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>bandwidth</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.MeanShift.fit" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.MiniBatchKmeans">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">MiniBatchKmeans</code><span class="sig-paren">(</span><em>trajs=None</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.MiniBatchKmeans" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.ClusterSKlearn" title="pyfloc.cluster.ClusterSKlearn"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.ClusterSKlearn</span></code></a></p>
+<dl class="method">
+<dt id="pyfloc.cluster.MiniBatchKmeans.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><em>n_clusters</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.MiniBatchKmeans.fit" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="pyfloc.cluster.Unique">
+<em class="property">class </em><code class="descclassname">pyfloc.cluster.</code><code class="descname">Unique</code><span class="sig-paren">(</span><em>trajs</em>, <em>labels=None</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Unique" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#pyfloc.cluster.Cluster" title="pyfloc.cluster.Cluster"><code class="xref py py-class docutils literal notranslate"><span class="pre">pyfloc.cluster.Cluster</span></code></a></p>
+<p>Class for clustering each unique point in its own cluster
+N.B. It works only when feature values are integers</p>
+<p>list_samples: list</p>
+<dl class="method">
+<dt id="pyfloc.cluster.Unique.fit">
+<code class="descname">fit</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Unique.fit" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="pyfloc.cluster.Unique.predict">
+<code class="descname">predict</code><span class="sig-paren">(</span><em>traj</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.Unique.predict" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="pyfloc.cluster.make_data">
+<code class="descclassname">pyfloc.cluster.</code><code class="descname">make_data</code><span class="sig-paren">(</span><em>kind</em>, <em>n_samples=1000</em>, <em>n_samples_rare=10</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.make_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate toy data sets for testing clustering algorithm</p>
+<dl class="docutils">
+<dt>n_samples:  int</dt>
+<dd>Number of samples per class</dd>
+<dt>n_samples_rare:  int</dt>
+<dd>Number of samples per rare classes</dd>
+</dl>
+</dd></dl>
+
+<dl class="function">
+<dt id="pyfloc.cluster.run">
+<code class="descclassname">pyfloc.cluster.</code><code class="descname">run</code><span class="sig-paren">(</span><em>mode</em>, <em>trajs</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#pyfloc.cluster.run" title="Permalink to this definition">¶</a></dt>
+<dd><p>mode: str</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-pyfloc">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-pyfloc" title="Permalink to this headline">¶</a></h2>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="../index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">pyfloc package</a><ul>
+<li><a class="reference internal" href="#submodules">Submodules</a></li>
+<li><a class="reference internal" href="#module-pyfloc.cluster">pyfloc.cluster module</a></li>
+<li><a class="reference internal" href="#module-pyfloc">Module contents</a></li>
+</ul>
+</li>
+</ul>
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/source/pyfloc.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2018, Simone Furini.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.7.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.10</a>
+      
+      |
+      <a href="../_sources/source/pyfloc.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
