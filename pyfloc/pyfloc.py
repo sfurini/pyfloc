@@ -38,11 +38,11 @@ class PyFloc(object):
     def __init__(self, prefix = 'pyfloc', verbose = 0):
         self.prefix = prefix # all output files will start like this
         self.experiments = data.Collection() # initialize a new collection of experiments
-        self.counter_gating = 0 # counter for gating steps
-        self.counter_clustering = 0 # counter for clustering steps
+        self.counter = 0 # counter for gating steps
         self.features_synonym = {} # alternative names for features
         self.features_last_clustering = None # used to memorize the set of features used for the last clustering step, it's useful if afterwards there's a gating step
         self.last_gate = None # used to memorize the last contour
+        self.clusters_2_keep = None
         self.gate_mode = None # used to memorize if gating was in linear or log scale
         self.verbose = verbose # how much output is produced in terms of figures and text
     def read_input(self, file_input):
@@ -103,8 +103,8 @@ class PyFloc(object):
                                     features = self.experiments.get_features()
                                 else:
                                     features = [feature,]
-                                remove = values.split()[1]
-                                self.clean_samples(features, remove)
+                                mode = values.split()[1]
+                                self.clean_samples(features, mode)
                             elif key == 'remove_outliers': #--- Remove outliers
                                 reading_data = False
                                 features = [feature.strip() for feature in values.split(',')]
@@ -123,7 +123,7 @@ class PyFloc(object):
                                     clusters_2_keep = []
                                 self.draw_gate(prob_target, mode, clusters_2_keep)
                                 self.apply_gate()
-                                self.counter_gating += 1
+                                self.counter += 1
                             elif key == 'clustering': #--- Run a clustering step
                                 reading_data = False
                                 mode = values.split()[0].strip()
@@ -131,21 +131,21 @@ class PyFloc(object):
                                 print('Running a clustering step for features {0:s}'.format(','.join(features)))
                                 self.fit_cluster(mode, features, **parameters)
                                 self.predict_cluster(**parameters)
-                                self.counter_clustering += 1
+                                self.counter += 1
                             else:   #--- Everything else is considered a definition of feature synonyms
                                 self.features_synonym[key] = values
     def read_fcs(self, file_name, read_mode, conditions = 'undefined'):
-        print('Reading data from {0:s} with mode {1:s} conditions {2:s}'.format(file_name, read_mode, conditions))
+        print('Reading data from {0:s} with mode {1:s} conditions {2:s}'.format(file_name, str(read_mode), conditions))
         experiment = data.Experiment(file_name, mode = read_mode)
         self.experiments.add_experiment(experiment, conditions)
-    def clean_samples(self, features, remove):
+    def clean_samples(self, features, mode):
         for feature in features:
-            self.experiments.clean_samples(feature, remove)
+            self.experiments.clean_samples(feature, mode)
     def remove_outliers(self, features, max_n_std = 3.0):
-        self.experiments.remove_outliers(features, max_n_std)
+        self.experiments.remove_outliers(features, max_n_std, self.verbose)
     def normalize(self, features, **kwargs):
-        self.experiments.normalize(features, **kwargs)
-    def fit_cluster(self, mode, features, **kwargs):
+        self.experiments.normalize(features, self.verbose, **kwargs)
+    def fit_cluster(self, features, mode = None, verbose = None, **kwargs):
         """
         Parameters
         ----------
@@ -155,108 +155,124 @@ class PyFloc(object):
             values: str
                 The features to use for clustering
         """
+        #--- Use default verbosity if not defined
+        if verbose is None:
+            verbose = self.verbose
         #--- Get normalized data
         data_norm = self.experiments.get_data_norm_features(features)
         self.features_last_clustering = deepcopy(features)
         #--- Get reference labels, if they exist
         if 'label' in self.experiments.get_features():
-            labels = self.experiments.get_data_features(['label']).flatten()
+            labels = [self.experiments.get_data_features(['label']).flatten(),]
         else:
-            labels = None
+            labels = []
+        #--- Define mode, if None
+        if mode is None:
+            if self.experiments.get_n_samples() < 50000:
+                mode = 'DP'
+            else:
+                mode = 'DPKNN'
         #--- Fit clustering mode
-        if self.verbose > 1:
-            pdf = PdfPages('{0:s}_fit_cluster_{1:d}.pdf'.format(self.prefix, self.counter_clustering))
+        if verbose > 1:
+            pdf = PdfPages('{0:s}_fit_cluster_{1:d}.pdf'.format(self.prefix, self.counter))
         else:
             pdf = None
-        if mode == 'DensityPeaks':
-            self.cluster = cluster.DensityPeaks(trajs = [data_norm,], labels = [labels,])
+        if mode == 'DP':
+            self.cluster = cluster.DensityPeaks(trajs = [data_norm,], labels = labels, verbose = verbose)
             self.cluster.search_cluster_centers(pdf = pdf, **kwargs)
+        elif mode == 'DPKNN':
+            self.cluster = cluster.TrainingKNN(trajs = [data_norm,], labels = labels, verbose = verbose)
+            self.cluster.fit(kwargs['ns_clusters'], percent = kwargs.get('percents',10.0), training_samples = kwargs.get('training_samples',10000), n_rounds = kwargs.get('n_rounds',100), pdf = pdf)
         elif mode == 'Kmeans':
-            self.cluster = cluster.Kmeans(trajs = [data_norm,], labels = [labels,])
+            self.cluster = cluster.Kmeans(trajs = [data_norm,], labels = labels, verbose = verbose)
+            self.cluster.fit(kwargs['ns_clusters'], pdf = pdf)
         else:
-            raise NotImplemented('ERROR: mode {0:s} not implemented'.format(mode))
-        if self.verbose > 1:
+            raise NotImplementedError('ERROR: mode {0:s} not implemented'.format(mode))
+        if verbose > 1:
             pdf.close()
-    def predict_cluster(self, **kwargs):
+    def predict_cluster(self, verbose = None, **kwargs):
+        #--- Use default verbosity if not defined
+        if verbose is None:
+            verbose = self.verbose
         #--- Run clustering
-        if self.verbose > 1:
-            pdf = PdfPages('{0:s}_cluster_{1:d}.pdf'.format(self.prefix, self.counter_clustering))
+        if verbose > 1:
+            pdf = PdfPages('{0:s}_cluster_{1:d}.pdf'.format(self.prefix, self.counter))
         else:
             pdf = None
         self.cluster.fit_predict(pdf = pdf, **kwargs)
-        self.cluster.show(pdf, plot_maps = (len(self.features_last_clustering) == 2))
-        print(self.cluster)
+        if verbose > 0:
+            self.cluster.show(pdf, plot_maps = (len(self.features_last_clustering) == 2))
+            print(self.cluster)
         self.experiments.labels = self.cluster.dtrajs[0]
-        if self.verbose > 1:
+        if verbose > 1:
             pdf.close()
-    def draw_gate(self, prob_target, mode, clusters_2_keep = []):
+    def draw_gate(self, target, mode = 'cherry', clusters_2_keep = [], verbose = None):
+        #--- Use default verbosity if not defined
+        if verbose is None:
+            verbose = self.verbose
+        #--- Check parameters
         if (len(self.features_last_clustering) != 2) and (prob_target > 0):
             raise ValueError('ERROR: gating works only with 2 features')
         if not clusters_2_keep:
             input_str = input('Look at last clustering file and choose the cluster(s) to keep (write cluster indexes separated by commas): ')
             clusters_2_keep = [int(s.strip()) for s in input_str.split(',')]
-        self.gate_mode = mode
-        #--- Delete samples based on clustering
-        print('Number of samples before removing clusters: {0:d}'.format(self.experiments.get_n_samples()))
-        print('Keeping samples from clusters: ',clusters_2_keep)
-        inds_2_delete = [i_sample for i_sample, label in enumerate(self.experiments.labels) if label not in clusters_2_keep]
-        self.experiments.delete_samples(inds_2_delete)
-        print('Number of samples after removing clusters: {0:d}'.format(self.experiments.get_n_samples()))
+        self.clusters_2_keep = clusters_2_keep
         #--- Get the data
-        data = self.experiments.get_data_features(self.features_last_clustering)
-        lin_upper = 1e-3
-        lin_lower = -1e-3
-        if self.gate_mode == 'log-log' or self.gate_mode == 'log-lin':
-            inds = data[:,0] > lin_upper
-            data[inds,0] = np.log10(data[inds,0])
-            inds = data[:,0] < lin_lower
-            data[inds,0] = -np.log10(-data[inds,0])
-        if self.gate_mode == 'log-log' or self.gate_mode == 'lin-log':
-            inds = data[:,1] > lin_upper
-            data[inds,1] = np.log10(data[inds,1])
-            inds = data[:,1] < lin_lower
-            data[inds,1] = -np.log10(-data[inds,1])
-        elif self.gate_mode != 'lin-lin':
-            raise ValueError('ERROR: mode {0:s} is not implemented'.format(self.gate_mode))
+        data = self.experiments.get_data_norm_features(self.features_last_clustering)
+        inds_2_keep = [i_sample for i_sample, label in enumerate(self.experiments.labels) if label in self.clusters_2_keep]
+        inds_2_delete = [i_sample for i_sample, label in enumerate(self.experiments.labels) if label not in self.clusters_2_keep]
+        if len(inds_2_delete):
+            outside_data = data[inds_2_delete,:]
+        else:
+            outside_data = None
         #--- Draw the contour
-        if prob_target > 0.0: #--- Define contour
-            self.last_gate = contour.Contour(data, n_gaussians = 20, prob_target = prob_target, n_bins = [100,100])
-            self.last_gate.run(n_points = 20, max_iter = 10000, stride_show = 1000, tol = 1e-2)
-    def apply_gate(self):
-        if self.last_gate is None:
+        if target > 0.0: #--- Define contour
+            if mode == 'mgaussian':
+                self.last_gate = contour.Contour(data, n_gaussians = 20, prob_target = target, n_bins = [100,100])
+                self.last_gate.run(n_points = 20, max_iter = 10000, stride_show = 1000, tol = 1e-2)
+            elif mode == 'cherry':
+                self.last_gate = contour.Cherry(data = data[inds_2_keep,:], outside_data = outside_data, n_bins = [100, 100], verbose = verbose)
+                self.last_gate.run(prob_target = target, starting_point = None, exclude_borders = False, mode='above')
+            else:
+                raise NotImplementedError('ERROR: mode {0:s} does not exist'.format(mode))
+    def apply_gate(self, verbose = None):
+        #--- Use default verbosity if not defined
+        if verbose is None:
+            verbose = self.verbose
+        #--- Check parameters
+        if (self.last_gate is None) or (self.clusters_2_keep is None):
             print('ERROR: First run draw_gate')
             return
+        #--- Delete samples based on clustering
+        #print('Number of samples before removing clusters: {0:d}'.format(self.experiments.get_n_samples()))
+        #print('Keeping samples from clusters: ',self.clusters_2_keep)
+        #inds_2_delete = [i_sample for i_sample, label in enumerate(self.experiments.labels) if label not in self.clusters_2_keep]
+        #self.experiments.delete_samples(inds_2_delete, self.verbose)
+        #print('Number of samples after removing clusters: {0:d}'.format(self.experiments.get_n_samples()))
+        #--- Delete samples based on gating
         print('Number of samples before gating: {0:d}'.format(self.experiments.get_n_samples()))
         if self.verbose > 1:
-            pdf = PdfPages('{0:s}_gating_{1:d}.pdf'.format(self.prefix,self.counter_gating))
-        else:
-            pdf = None
-        inds_inside = self.last_gate.get_index_inside_polygon()
+            for conditions in self.experiments.get_conditions():
+                print('\tconditions {0:s} = {1:d}'.format(conditions,self.experiments.get_n_samples(conditions)))
+        self.last_gate.get_polygon_refined() # update the contour, if it was manually modified
+        inds_inside = self.last_gate.get_index_inside_polygon(data = self.experiments.get_data_norm_features(self.features_last_clustering))
         inds_outside = np.logical_not(inds_inside)
         contour = [np.array(self.last_gate.xc), np.array(self.last_gate.yc)]
-        lin_upper = 1e-3
-        lin_lower = -1e-3
-        if self.gate_mode == 'log-log' or self.gate_mode == 'log-lin':
-            inds = contour[0] > lin_upper
-            contour[0][inds] = np.power(10, contour[0][inds])
-            inds = contour[0] < lin_lower
-            contour[0][inds] = -np.power(10,-contour[0][inds])
-        if self.gate_mode == 'log-log' or self.gate_mode == 'lin-log':
-            inds = contour[1] > lin_upper
-            contour[1][inds] = np.power(10, contour[1][inds])
-            inds = contour[1] < lin_lower
-            contour[1][inds] = -np.power(10,-contour[1][inds])
-        elif self.gate_mode != 'lin-lin':
-            raise ValueError('ERROR: mode {0:s} is not implemented'.format(self.gate_mode))
-        self.experiments.show_scatter(self.features_last_clustering, features_synonym = self.features_synonym, contour = contour, pdf = pdf)
+        if self.verbose > 1:
+            pdf = PdfPages('{0:s}_gating_{1:d}.pdf'.format(self.prefix,self.counter))
+            self.experiments.show_scatter(self.features_last_clustering, features_synonym = self.features_synonym, contour = contour, mode = 'density', inds_inside = inds_inside, pdf = pdf)
+            pdf.close()
         self.experiments.delete_samples(inds_outside)
         print('Number of samples after gating: {0:d}'.format(self.experiments.get_n_samples()))
         if self.verbose > 1:
-            pdf.close()
-    def write(self, file_name):
-        print('Dumping data to {0:s}'.format(file_name))
+            for conditions in self.experiments.get_conditions():
+                print('\tconditions {0:s} = {1:d}'.format(conditions,self.experiments.get_n_samples(conditions)))
+    def write(self, file_name = None):
+        if file_name is None:
+            file_name = '{0:s}_{1:d}.pk'.format(self.prefix, self.counter)
+        print('Dumping pyfloc class to {0:s}'.format(file_name))
         with open(file_name, 'wb') as fout:
-            pickle.dump(self.experiments, fout)
+            pickle.dump(self, fout)
     def __str__(self):
         output = self.experiments.__str__() + '\n'
         return output[:-1]
