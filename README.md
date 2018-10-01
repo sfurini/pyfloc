@@ -1,7 +1,7 @@
 ## PyFLOC README
 The analysis of Flow Cytometry (FC) and Mass Cytometry (CyTOF) experiments by manual gating strategies is a time-consuming process, and it is also affected by inter-operator variability [Saeys, Y., Nat Rev Immuno.,16(7):449-62].  These shortcomings get more severe when more features are considered. Therefore, there is a great interest in computational tools for data analyses. AGACY is a novel software for automatic gating and clustering of FC and CyTOF experiments, with three main features: (1) it offers a unique framework for gating and data analysis, (2) it provides a robust estimate of the number of cell populations, and (3) thanks to a novel clustering algorithm it can identify rare populations with high precision.
 
-(/pyfloc/blob/master/docs/images/workflow.png)
+![alt text](/pyfloc/blob/master/docs/images/workflow.png)
 
 
 #Workflow
