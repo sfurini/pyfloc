@@ -8,17 +8,13 @@ import numpy as np
 import scipy as sp
 import matplotlib
 import matplotlib.pyplot as plt
-###MODIFICA MARCO
-#plt.switch_backend('agg')
-###
 from matplotlib.backends.backend_pdf import PdfPages
 from FlowCytometryTools import FCMeasurement   
-###MODIFICA MARCO
 import logicleScale
-###
-
 import graphics
 import settings
+
+#plt.switch_backend('agg')
 
 np.set_printoptions(linewidth = np.inf)
 print = functools.partial(print, flush=True)
@@ -438,7 +434,6 @@ class Collection(object):
     def single_scatter_plot(self, data, data_norm, data_colors, features, stride, contour, title, pdf, data_outside = None, data_norm_outside = None):
         """
         It's the method actually making the scatter plot
-        Use Collection.show_scatter as interface
         """
         if stride == 0:
             stride = max(int(data.shape[0] / 20000),1)
@@ -451,6 +446,7 @@ class Collection(object):
         data_norm = data_norm[::stride,:]
         has_norm = not np.prod(np.isnan(data_norm))
         f = plt.figure()
+        ax1 = f.add_subplot(111)
         #if has_norm:
         #    ax1 = f.add_subplot(311)
         #    ax2 = f.add_subplot(312)
@@ -472,17 +468,18 @@ class Collection(object):
         #plt.ylabel(features[1])
         #if not isinstance(data_colors,str):
         #    plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5)) 
-        if has_norm:
-            ax3 = f.add_subplot(111)
+        if not has_norm:
             if data_outside is not None:
-                ax3.plot(data_norm_outside[::stride_outside,0], data_norm_outside[::stride_outside,1], ', ', color  = 'dimgray')
-            self.single_scatter_panel(ax3, data_norm, data_colors, contour, stride)
-            plt.ylabel(features[1])
-            plt.xlabel(features[0])
+                ax1.plot(data_outside[::stride_outside,0], data_outside[::stride_outside,1], ', ', color  = 'dimgray')
+            self.single_scatter_panel(ax1,  data, data_colors, contour, stride)
+        else:
+            if data_outside is not None:
+                ax1.plot(data_norm_outside[::stride_outside,0], data_norm_outside[::stride_outside,1], ', ', color  = 'dimgray')
+            self.single_scatter_panel(ax1,  data_norm, data_colors, contour, stride)
             #--- change labels to actual values / x-axis
             possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
             possible_ticklabels = ['-10^3','-10^2','-10^-1','0','10^1','10^2','10^3','','','','','','','','','10^4','','','','','','','','','10^5','','','','','','','','']
-            x_norm_min, x_norm_max = ax3.get_xlim()
+            x_norm_min, x_norm_max = ax1.get_xlim()
             x_min, x_max = self.back_transform(features[0], [x_norm_min, x_norm_max])
             x_ticks = []
             x_ticklabels = []
@@ -492,10 +489,10 @@ class Collection(object):
                     x_ticklabels.append(possible_ticklabels[ind])
             x_ticks = np.array(x_ticks)
             x_ticks_norm = self.transform(features[0], x_ticks)
-            ax3.set_xticks(x_ticks_norm)
-            ax3.set_xticklabels(x_ticklabels)
+            ax1.set_xticks(x_ticks_norm)
+            ax1.set_xticklabels(x_ticklabels)
             #--- change labels to actual values / x-axis
-            y_norm_min, y_norm_max = ax3.get_ylim()
+            y_norm_min, y_norm_max = ax1.get_ylim()
             y_min, y_max = self.back_transform(features[0], [y_norm_min, y_norm_max])
             y_ticks = []
             y_ticklabels = []
@@ -505,12 +502,11 @@ class Collection(object):
                     y_ticklabels.append(possible_ticklabels[ind])
             y_ticks = np.array(y_ticks)
             y_ticks_norm = self.transform(features[0], y_ticks)
-            ax3.set_yticks(y_ticks_norm)
-            ax3.set_yticklabels(y_ticklabels)
-        #else:
-        #    plt.xlabel(features[0])
-        #plt.sca(ax3)
-        #plt.title(title)
+            ax1.set_yticks(y_ticks_norm)
+            ax1.set_yticklabels(y_ticklabels)
+        plt.ylabel(features[1])
+        plt.xlabel(features[0])
+        plt.title(title)
         if pdf is not None:
             pdf.savefig()
             plt.close()
@@ -971,45 +967,40 @@ if __name__ == '__main__':
 
     pdf = PdfPages('./test.pdf')
 
-    # Read data for a single experiment
-    E = Experiment(file_name = '/home/cito/flowc/levine_13dim.fcs', mode = 10000)
-    #E = Experiment(file_name = '/home/cito/T318/ILN_d5_A_1_1_050.fcs', mode = 10000)
-    print(E.get_features())
-    print(E.get_features_synonym())
-    # Show scatter plot
-    E.show('CD4','CD8', pdf = pdf)
-
     # Create a collection of experiments
     C = Collection()
     # Read data for 1st experiment
-    E1 = Experiment(file_name = '../examples/data/flowc/levine_13dim.fcs', mode = 50000)
+    E1 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
+    print(E1.get_features_synonym())
     # Add data to collection
-    C.add_experiment(E1, condition = 'random_set_1', labels = E1.get_data_features(['label']))
+    C.add_experiment(E1, condition = 'random_set_1') #, labels = E1.get_data_features(['label']))
     # Read data for 2nd experiment
-    E2 = Experiment(file_name = '../examples/data/flowc/levine_13dim.fcs', mode = 50000)
+    E2 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
     # Add data to collection
     C.add_experiment(E2, condition = 'random_set_2')
+    # Choose two features
+    feature_0 = 'CD38'
+    feature_1 = 'CD95'
     # Remove nan from all features
     C.clean_samples()
-    # Remove nan from all features
-    #C.clean_samples(value = 'inf')
-    C.clean_samples(['CD4','CD8'], mode = '<= 0')
+    # Compensate data
+    C.compensate()
     # Normalize data
-    #C.normalize(features = ['CD4','CD8'], mode = 'arcsinh')
-    C.normalize(features = ['CD4','CD8'], mode = 'logicle')
+    #C.normalize(features = [feature_0, feature_1], mode = 'arcsinh')
+    C.normalize(features = [feature_0, feature_1], mode = 'logicle')
     # Show experiment E1
-    E1.show('CD4','CD8', pdf = pdf)
+    E1.show(feature_0, feature_1, pdf = pdf)
     # Show all experiments in the collection
-    C.show('CD4','CD8', pdf = pdf)
+    C.show(feature_0, feature_1, pdf = pdf)
     # Show scattered data, colored according to experiment index
-    C.show_scatter(['CD4','CD8'], stride = 0, mode = 'experiments', pdf = pdf)
+    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'experiments', pdf = pdf)
     # Show scattered data, colored according to condition index
-    C.show_scatter(['CD4','CD8'], stride = 0, mode = 'conditions', pdf = pdf)
+    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'conditions', pdf = pdf)
     # Show scattered data, colored according to labels
-    C.show_scatter(['CD4','CD8'], stride = 0, mode = 'labels', pdf = pdf)
+    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'labels', pdf = pdf)
     # Show scattered data, colored according to density
-    C.show_scatter(['CD4','CD8'], stride = 0, mode = 'density', pdf = pdf)
-    #C.show_distributions(['CD4','CD8'], pdf = pdf)
-    #print(C)
+    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'density', pdf = pdf)
+    # Show cluster distribution
+    #C.show_distributions([feature_0, feature_1], pdf = pdf)
 
     pdf.close()
