@@ -1,1 +1,3 @@
 /pyfloc/.ipynb_checkpoints/*
+/pyfloc/*pdf
+/pyfloc/__pycache__/

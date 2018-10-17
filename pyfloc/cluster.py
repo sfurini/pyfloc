@@ -933,22 +933,78 @@ class DensityPeaks(ClusterSKlearn):
         means_deltas = []
         stds_deltas = []
         rho_bins = []
+        ### MM
+        means_deltas_gaussian = []
+        stds_deltas_gaussian = []
+        gmm_objects = [] #vettore degli oggetti gaussian mixture. in posizione 0 c'e' gmm del bin 0, e cosi' via
+        bin_sample = -1*np.ones(self.n_frames()).astype(int) #vettore dei bin a cui appartiene il dato
+        bin_count = 0 #bin a cui appartiene il dato
+        n_gaussians = 4
+        mode = "GM"
+        ###
         for ir in range(len(rho_edges)-1):
             inds_sample_bin = (rho_norm_log > rho_edges[ir]) * (rho_norm_log <= rho_edges[ir+1]) * np.isfinite(rho_norm_log) * np.isfinite(delta_norm_log)
+            pos_true = np.where(inds_sample_bin)[0]
+            #print(pos_true, type(pos_true))
+            #print(bin_sample, type(bin_sample))
+            if len(pos_true)!=0:
+                bin_sample[pos_true] = bin_count 
+            gmm_objects.append(None)
+            print (bin_count)
+            #binned_samples.append(inds_sample_bin)
+            #print ('*: ',inds_sample_bin, len(inds_sample_bin), self.n_frames())
             if np.sum(inds_sample_bin) > 10: # check if there are enough samples in the bin
                 rho_bins.append(0.5*(rho_edges[ir]+rho_edges[ir+1]))
                 delta_in_bins = delta_norm_log[inds_sample_bin]
+                #1) raw standard deviation
+                #if mode!="GM":
                 means_deltas.append(np.mean(delta_in_bins))
-                deltas_above_mean = delta_in_bins[delta_in_bins > means_deltas[-1]] - means_deltas[-1]
                 stds_deltas.append(np.std(delta_norm_log[inds_sample_bin]))
+                #print ("***")
+                #print (np.mean(delta_in_bins), np.std(delta_norm_log[inds_sample_bin]))
+                #2) percentile above mean
+                #deltas_above_mean = delta_in_bins[delta_in_bins > means_deltas[-1]] - means_deltas[-1]
                 #std_deltas = np.percentile(deltas_above_mean, 68.27)
-                #std_deltas = np.percentile(deltas_above_mean, 90.0)
                 #stds_deltas.append(std_deltas)
+                ### MM
+                #3) calcola il GM che fitta i dati tolti n up
+                #else:
+                if len(delta_in_bins>10):
+                        delta_in_bins_ord = np.sort(delta_in_bins)
+                        delta_in_bins = delta_in_bins_ord[:-5]
+                from sklearn.mixture import GaussianMixture as GM
+                gmm = GM(n_components=n_gaussians, covariance_type = 'full').fit(delta_in_bins.reshape(-1,1))
+                gmm_objects[bin_count] = gmm
+            bin_count = bin_count + 1
+            ###
+        print ("len gmm", len(gmm_objects))
         if len(rho_bins) < 2:
             self.ind_cluster_centers = []
             return -np.inf
         rho_norm_log[np.logical_not(np.isfinite(rho_norm_log))] = np.nan
         ind_min = np.argsort(rho_norm_log)[0]
+        """
+        ### MM
+        if(len(means_deltas_gaussian)!=0):
+            f_means = [] 
+            f_stds = []
+            #print ("len(means_deltas_gaussian): ",len(means_deltas_gaussian))
+            #print (means_deltas_gaussian)
+            for i in range(len(means_deltas_gaussian[0])):
+                #print ("*",rho_bins, np.shape(rho_bins), type(rho_bins))
+                #print ("**", stds_deltas_gaussian, np.shape(stds_deltas_gaussian), type(stds_deltas_gaussian))
+                #print ("***", [a[i][0][0] for a in stds_deltas_gaussian], np.shape([a[i][0][0] for a in stds_deltas_gaussian]), type([a[i][0][0] for a in stds_deltas_gaussian]))
+                #print ("**", [float(a[i]) for a in means_deltas_gaussian], np.shape([float(a[i]) for a in means_deltas_gaussian]), type([float(a[i]) for a in means_deltas_gaussian]))
+                #print ("***",[rho_norm_log[ind_min],], np.shape([rho_norm_log[ind_min],]))
+                #print ("****", [delta_norm_log[ind_min],], np.shape([delta_norm_log[ind_min],]))
+                f_means.append(sp.interpolate.interp1d([rho_norm_log[ind_min],]+rho_bins, [delta_norm_log[ind_min],]+[float(a[i]) for a in means_deltas_gaussian], bounds_error = False, fill_value = 'extrapolate'))
+                f_stds.append(sp.interpolate.interp1d(rho_bins, [a[i][0][0] for a in stds_deltas_gaussian], bounds_error = False, fill_value = ([a[i][0][0] for a in stds_deltas_gaussian][0], [a[i][0][0] for a in stds_deltas_gaussian][-1])))
+        """
+        ###
+        #if mode!= "GM":
+        #print ("rho_bins",np.shape(rho_bins))
+        #print ("means_deltas",np.shape(means_deltas))
+        #print ("stds_deltas",np.shape(stds_deltas))
         f_means = sp.interpolate.interp1d([rho_norm_log[ind_min],]+rho_bins, [delta_norm_log[ind_min],]+means_deltas, bounds_error = False, fill_value = 'extrapolate')
         f_stds = sp.interpolate.interp1d(rho_bins, stds_deltas, bounds_error = False, fill_value = (stds_deltas[0], stds_deltas[-1]))
         if pdf is not None:
@@ -957,17 +1013,28 @@ class DensityPeaks(ClusterSKlearn):
             plt.title('Percentile {0:f}'.format(percent))
             ax.plot(rho_norm_log, delta_norm_log,'.k', markersize = 1.0)
             rho_th = np.linspace(np.min(rho_norm_log[np.isfinite(rho_norm_log)]),np.max(rho_norm_log[np.isfinite(rho_norm_log)]),100)
-            ax.plot(rho_th, f_means(rho_th), '-r')
-            if n_stds_delta is not None:
-                ax.plot(rho_th, f_means(rho_th)+n_stds_delta*f_stds(rho_th), ':r')
-            ax.errorbar(rho_bins, means_deltas, yerr = stds_deltas)
+            ### MM
+            if mode != "GM":
+                ax.plot(rho_th, f_means(rho_th), '-r')
+                if n_stds_delta is not None:
+                    ax.plot(rho_th, f_means(rho_th)+n_stds_delta*f_stds(rho_th), ':r')
+                ax.errorbar(rho_bins, means_deltas, yerr = stds_deltas)
+            #else:
+            #    for i_gaussian in range(len(gmm_objects)):
+            #        if gmm_objects[i_gaussian] is not None: 
+            #            print ("*: ", rho_th, np.shape(rho_th), " **: ", gmm_objects[i_gaussian].means_, np.shape(gmm_objects[i_gaussian].means_))
+            #            ax.plot(rho_th, gmm_objects[i_gaussian].means_, '-r')
+            ###
             plt.xlabel('rho_norm_log')
             plt.ylabel('delta_norm_log')
             pdf.savefig()
             plt.close()
         #------ Search for outliers
+        ### MM
+        #if mode != "GM":
         for i_sample in range(self.n_frames()):
             if delta_norm_log[i_sample] > f_means(rho_norm_log[i_sample]):
+                #1) compute prob(delta > mu) assuming gaussian 
                 mu = f_means(rho_norm_log[i_sample])
                 sigma = f_stds(rho_norm_log[i_sample])
                 x = delta_norm_log[i_sample]
@@ -978,6 +1045,30 @@ class DensityPeaks(ClusterSKlearn):
         probs[np.logical_not(np.isfinite(probs))] = 1.0 # in this way it gives no contribution to the logarithm
         probs[np.isnan(probs)] = 1.0 # in this way it gives no contribution to the logarithm
         probs[probs < settings.numerical_precision] = settings.numerical_precision
+        #else:
+        #print ("gmm: ", len(gmm_objects))
+        probs_gaussian = np.zeros(self.n_frames())
+        #print ("*: ", bin_sample_total, np.shape(bin_sample_total))
+        for i_sample in range(self.n_frames()):
+                if(gmm_objects[bin_sample[i_sample]] is not None): #se la gaussiana corrispondente al bin del sample is not None
+                    #print(gmm_objects[i_gaussian])
+                    for i_gaussian in range(n_gaussians):
+                        mu = gmm_objects[bin_sample[i_sample]].means_[i_gaussian]
+                        sigma = gmm_objects[bin_sample[i_sample]].covariances_[i_gaussian]
+                        #sigma = gmm_objects[i_gaussian].covariances_[bin_sample[i_sample]]
+                        #print("elisa: ", mu, "sigma: ", sigma )
+                        x = delta_norm_log[i_sample]
+                        probs_gaussian[i_sample] = probs_gaussian[i_sample] + 0.5*(1.0 - erf( (x - mu) / (np.sqrt(2)*sigma) ) )
+                    probs_gaussian[i_sample] = probs_gaussian[i_sample]/(1.0*n_gaussians)
+        probs[np.logical_not(np.isfinite(probs))] = 1.0 # in this way it gives no contribution to the logarithm
+        probs[np.isnan(probs)] = 1.0 # in this way it gives no contribution to the logarithm
+        probs[probs < settings.numerical_precision] = settings.numerical_precision
+        ###               
+        fig, ax = plt.subplots()
+        ax.scatter(probs, probs_gaussian)
+        ax.set_xlabel("probs")
+        ax.set_ylabel("probs_gaussian")
+        plt.show()
         energies = -1.0*np.log(probs)
         energies.sort()
         if isinstance(ns_clusters,int) or isinstance(ns_clusters,np.int64) : # if a number of clusters was chosen, return the ones in lowest probability regions

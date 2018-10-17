@@ -16,7 +16,6 @@
 #conda-build conda_pyfloc/pyfloc
 #conda convert -f --platform all /Users/simone/anaconda3/conda-bld/osx-64/pyfloc-0.0.3-py36_0.tar.bz2 -o conda_pyfloc/
 
-
 #anaconda upload conda_pyfloc/*/*bz2
 ##anaconda upload /Users/simone/anaconda3/conda-bld/osx-64/pyfloc-0.0.2-py36_0.tar.bz2 # useless if --set anaconda_upload yes
 

@@ -8,8 +8,14 @@ import numpy as np
 import scipy as sp
 import matplotlib
 import matplotlib.pyplot as plt
+###MODIFICA MARCO
+#plt.switch_backend('agg')
+###
 from matplotlib.backends.backend_pdf import PdfPages
-from FlowCytometryTools import FCMeasurement    
+from FlowCytometryTools import FCMeasurement   
+###MODIFICA MARCO
+import logicleScale
+###
 
 import graphics
 import settings
@@ -221,13 +227,17 @@ class Collection(object):
                 if self.normalize_parameters[feature][0] == 'min':
                     min_feature = self.get_min_feature(feature)
                     self.normalize_parameters[feature][0] = min_feature
-            elif kwargs['mode'] == 'logical':
-                pass
+            elif kwargs['mode'] == 'logicle':
+                data_feature = self.get_data_features([feature])
+                L = logicleScale.LogicleScale(data_feature)
+                L.calculate_T_M_A_r()
+                L.calculate_p_W()
+                self.normalize_parameters[feature] = [L.T, L.M, L.A, L.p, L.W] 
             for i_experiment, experiment in enumerate(self.experiments):
                 if (verbose > 0):
                     print('Running normalization for feature {0:s} in experiment {1:d} with mode {2:s}'.format(feature, i_experiment,kwargs.get('mode','min')))
                 experiment.normalize(feature, self.normalize_parameters, **kwargs)
-        self.transform_mode = kwargs['mode']
+        self.transform_mode = kwargs['mode']    
     def transform(self, feature, data):
         """
         Parameters
@@ -239,6 +249,15 @@ class Collection(object):
         """
         if self.transform_mode == 'arcsinh':
             return np.arcsinh((data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1])
+        elif self.transform_mode == 'logicle':
+            L = logicleScale.LogicleScale(data)
+            L.calculate_y(
+                    T = self.normalize_parameters[feature][0],
+                    M = self.normalize_parameters[feature][1],
+                    A = self.normalize_parameters[feature][2],
+                    p = self.normalize_parameters[feature][3],
+                    W = self.normalize_parameters[feature][4])
+            return L.y
         else:
             raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.transform_mode))
     def back_transform(self, feature, data):
@@ -252,6 +271,16 @@ class Collection(object):
         """
         if self.transform_mode == 'arcsinh':
             return self.normalize_parameters[feature][1]*np.sinh(data)
+        elif self.transform_mode == 'logicle':
+            L = logicleScale.LogicleScale(data)
+            original_data = L.calculate_S(
+                    y = self.get_data_norm_features([feature]),  
+                    T = self.normalize_parameters[feature][0],
+                    M = self.normalize_parameters[feature][1],
+                    A = self.normalize_parameters[feature][2],
+                    p = self.normalize_parameters[feature][3],
+                    W = self.normalize_parameters[feature][4])
+            return [np.min(original_data), np.max(original_data)]
         else:
             raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.transform_mode))
     def delete_samples(self, inds, verbose = 0):
@@ -442,7 +471,7 @@ class Collection(object):
         #plt.yscale('log')
         #plt.ylabel(features[1])
         #if not isinstance(data_colors,str):
-        #    plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+        #    plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5)) 
         if has_norm:
             ax3 = f.add_subplot(111)
             if data_outside is not None:
@@ -451,12 +480,7 @@ class Collection(object):
             plt.ylabel(features[1])
             plt.xlabel(features[0])
             #--- change labels to actual values / x-axis
-            #import matplotlib.ticker
-            #l = matplotlib.ticker.AutoLocator()
-            #l.create_dummy_axis()
-            #possible_ticks = [-1000,-100,-10,-1,0,1,10,100,1000,10000,100000]
-            #possible_ticklabels = ['-10^3','-10^2','-10^-1','-10^0','0','10^0','10^1','10^2','10^3','10^4','10^5']
-            possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
+            possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
             possible_ticklabels = ['-10^3','-10^2','-10^-1','0','10^1','10^2','10^3','','','','','','','','','10^4','','','','','','','','','10^5','','','','','','','','']
             x_norm_min, x_norm_max = ax3.get_xlim()
             x_min, x_max = self.back_transform(features[0], [x_norm_min, x_norm_max])
@@ -485,8 +509,8 @@ class Collection(object):
             ax3.set_yticklabels(y_ticklabels)
         #else:
         #    plt.xlabel(features[0])
-        plt.sca(ax3)
-        plt.title(title)
+        #plt.sca(ax3)
+        #plt.title(title)
         if pdf is not None:
             pdf.savefig()
             plt.close()
@@ -879,11 +903,14 @@ class Experiment(object):
         elif kwargs['mode'] == 'arcsinh':
             dummy = (self.data[:,ind_features] - norm_parameters[feature][0])
             self.data_norm[:,ind_features] = np.arcsinh( dummy /  norm_parameters[feature][1])
-        elif kwargs['mode'] == 'logical':
-            pass
-            # m = number of decades
-            # r = reference value for negative data
-            # T = upper
+        elif kwargs['mode'] == 'logicle':
+            L = logicleScale.LogicleScale(self.data[:,ind_features])
+            self.data_norm[:,ind_features] = L.calculate_y(
+                    T = norm_parameters[feature][0], 
+                    M = norm_parameters[feature][1],
+                    A = norm_parameters[feature][2], 
+                    p = norm_parameters[feature][3],
+                    W = norm_parameters[feature][4])
         else:
             raise NotImplementedError('ERROR normalization mode {0:s} not implemented'.format(kwargs['mode']))
     def delete_samples(self, inds):
@@ -968,7 +995,8 @@ if __name__ == '__main__':
     #C.clean_samples(value = 'inf')
     C.clean_samples(['CD4','CD8'], mode = '<= 0')
     # Normalize data
-    C.normalize(features = ['CD4','CD8'], mode = 'arcsinh')
+    #C.normalize(features = ['CD4','CD8'], mode = 'arcsinh')
+    C.normalize(features = ['CD4','CD8'], mode = 'logicle')
     # Show experiment E1
     E1.show('CD4','CD8', pdf = pdf)
     # Show all experiments in the collection
