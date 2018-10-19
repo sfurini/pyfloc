@@ -75,11 +75,11 @@ class PyFloc(object):
                                 if not reading_data:
                                     raise ValueError('ERROR: wrong format in file {0:s}'.format(file_input))
                                 file_name = values.split()[0].strip()
-                                read_mode = values.split()[1].strip()
+                                mode = values.split()[1].strip()
                                 conditions = ','.join([s.strip() for s in values.split()[2:]])
                                 if len(conditions) == 0:
                                     conditions = 'unknown'
-                                self.read_fcs(file_name, read_mode, conditions)
+                                self.read_fcs(file_name, mode, conditions)
                             elif key == 'pk': #--- Read experiments from pk file
                                 if self.experiments.get_n_experiments():
                                     raise ValueError('ERROR: wrong format in file {0:s}'.format(file_input))
@@ -134,9 +134,9 @@ class PyFloc(object):
                                 self.counter += 1
                             else:   #--- Everything else is considered a definition of feature synonyms
                                 self.features_synonym[key] = values
-    def read_fcs(self, file_name, read_mode, conditions = 'undefined'):
-        print('Reading data from {0:s} with mode {1:s} conditions {2:s}'.format(file_name, str(read_mode), conditions))
-        experiment = data.Experiment(file_name, mode = read_mode)
+    def read_fcs(self, file_name, mode, conditions = 'undefined'):
+        print('Reading data from {0:s} with mode {1:s} conditions {2:s}'.format(file_name, str(mode), conditions))
+        experiment = data.Experiment(file_name, mode = mode)
         self.experiments.add_experiment(experiment, conditions)
     def clean_samples(self, features, mode):
         for feature in features:

@@ -14,7 +14,7 @@ import logicleScale
 import graphics
 import settings
 
-#plt.switch_backend('agg')
+plt.switch_backend('agg')
 
 np.set_printoptions(linewidth = np.inf)
 print = functools.partial(print, flush=True)
@@ -64,7 +64,6 @@ class Collection(object):
             self.labels = np.hstack((self.labels, labels.flatten())).astype(int)
     def get_conditions(self):
         set_conditions = set(self.conditions)
-        set_conditions = ['9','1','2','3']
         # BEGIN: SOLUZIONE TEMPORANEA
         #list_conditions = []
         #for organ in ['BM', 'ILN', 'SPL']:
@@ -714,7 +713,6 @@ class Collection(object):
         c_ticks_norm = self.transform(features[0], c_ticks)
         cbar.set_ticks(c_ticks_norm)
         cbar.set_ticklabels(c_ticklabels)
-
         plt.xticks(range(len(features)),features,rotation='vertical')
         plt.yticks(range(len(set(labels))),clusters_order)
         plt.ylabel('cluster index')
@@ -971,7 +969,6 @@ if __name__ == '__main__':
     C = Collection()
     # Read data for 1st experiment
     E1 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
-    print(E1.get_features_synonym())
     # Add data to collection
     C.add_experiment(E1, condition = 'random_set_1') #, labels = E1.get_data_features(['label']))
     # Read data for 2nd experiment
