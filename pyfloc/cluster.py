@@ -856,7 +856,7 @@ class DensityPeaks(ClusterSKlearn):
         self.manual_clusters_selector = None
         self.kernel_radius = -1.0
         self.name = 'Density Peaks'
-    def get_energy(self, percent, n_stds_delta, ns_clusters, pdf, n_gaussians = 2):
+    def get_energy(self, percent, n_stds_delta, ns_clusters, pdf, n_gaussians = 1):
         """
         It finds the best candidates as cluster centers and return the delta energy for this clustering scheme
 
@@ -870,12 +870,13 @@ class DensityPeaks(ClusterSKlearn):
         float
             The energy
         """
-        from scipy.special import erf
+        from hiprec_erf import hiprec_erf
         from sklearn.mixture import GaussianMixture as GM
         if isinstance(ns_clusters, float):
             ns_clusters = int(ns_clusters)
         mask = np.logical_not(np.eye(self.dist.shape[0]).astype('bool'))
-        self.kernel_radius = np.percentile(self.dist[mask], percent)
+        #self.kernel_radius = np.percentile(self.dist[mask], percent)
+        self.kernel_radius = percent
         if self.kernel_radius <= 0.0:
             self.ind_cluster_centers = []
             return -np.inf
@@ -932,7 +933,7 @@ class DensityPeaks(ClusterSKlearn):
         delta_norm_log = np.log10(delta_norm)
         inds_finite = np.isfinite(rho_norm_log*delta_norm_log)
         probs = np.inf*np.ones(self.n_frames())
-        probs_gmm = np.inf*np.ones(self.n_frames())
+        probs_gmm = np.inf*np.ones(self.n_frames(), dtype = 'float64')
         rho_edges = np.linspace(np.min(rho_norm_log[np.isfinite(rho_norm_log)]), np.max(rho_norm_log[np.isfinite(rho_norm_log)]), 20)
         ind_cluster_centers = [] # here, the indexes of the sample in low probability regions are stored
         #------ Calculate average values and standard deviations of deltas along rho
@@ -951,7 +952,7 @@ class DensityPeaks(ClusterSKlearn):
                 #deltas_above_mean = delta_in_bins[delta_in_bins > means_deltas[-1]] - means_deltas[-1]
                 #std_deltas = np.percentile(deltas_above_mean, 68.27)
                 #stds_deltas.append(std_deltas)
-                delta_in_bins = delta_in_bins[delta_in_bins > means_deltas[-1]]
+                #delta_in_bins = delta_in_bins[delta_in_bins > means_deltas[-1]]
                 delta_in_bins = delta_in_bins[delta_in_bins < np.percentile(delta_in_bins, 90)]
                 if len(delta_in_bins) < 100:
                     gaussian_mixture_models.append(GM(n_components = 1, covariance_type = 'full').fit(delta_in_bins.reshape(-1,1)))
@@ -991,7 +992,7 @@ class DensityPeaks(ClusterSKlearn):
             plt.xlabel('rho_norm_log')
             plt.ylabel('delta_norm_log')
             pdf.savefig()
-            plt.close()
+            plt.close() 
         #------ Search for outliers
         for i_sample in range(self.n_frames()):
             if delta_norm_log[i_sample] > f_means(rho_norm_log[i_sample]):
@@ -999,7 +1000,7 @@ class DensityPeaks(ClusterSKlearn):
                 mu = f_means(rho_norm_log[i_sample])
                 sigma = f_stds(rho_norm_log[i_sample])
                 x = delta_norm_log[i_sample]
-                probs[i_sample] =  0.5*(1.0 - erf( (x - mu) / (np.sqrt(2)*sigma) ) )
+                probs[i_sample] =  0.5*(1.0 - hiprec_erf( float((x - mu) / (np.sqrt(2)*sigma) ) ) )
                 if n_stds_delta is not None:
                     if delta_norm_log[i_sample] > f_means(rho_norm_log[i_sample]) + n_stds_delta*f_stds(rho_norm_log[i_sample]):
                         ind_cluster_centers.append(i_sample)
@@ -1012,9 +1013,13 @@ class DensityPeaks(ClusterSKlearn):
                         mu = gmm.means_[i_gauss]
                         sigma = np.sqrt(gmm.covariances_[i_gauss])
                         x = delta_norm_log[i_sample]
-                        probs_gmm[i_sample] = probs_gmm[i_sample] + gmm.weights_[i_gauss]*0.5*(1.0 - erf( (x - mu) / (np.sqrt(2)*sigma) ) )
-                        #print('i_gauss = ',i_gauss,' mu = ',mu, ' sigma = ', sigma,'probs_gmm = ',probs_gmm[i_sample])
-                    #print('Probs_gmm = ',probs_gmm[i_sample])
+                        hp = hiprec_erf(float(( (x - mu) / (np.sqrt(2)*sigma) )))
+                        probs_gmm[i_sample] = probs_gmm[i_sample] + gmm.weights_[i_gauss]*0.5*(1.0 - hp)
+                        #if probs_gmm[i_sample] == 0.0:
+                        #    print('i_gauss = ',i_gauss,' mu = ',mu, ' sigma = ', sigma,'probs_gmm = ',probs_gmm[i_sample], ' hp = ',hp, ' delta = ', float(( (x - mu) / (np.sqrt(2)*sigma) )))
+                    if probs_gmm[i_sample] == 0.0:
+                        print('WARNING: zero probability sample  = ',probs_gmm[i_sample])
+                        probs_gmm[i_sample] = np.finfo(probs_gmm.dtype).min
         probs[np.logical_not(np.isfinite(probs))] = 1.0 # in this way it gives no contribution to the logarithm
         probs[np.isnan(probs)] = 1.0 # in this way it gives no contribution to the logarithm
         probs[probs < settings.numerical_precision] = settings.numerical_precision
@@ -1025,8 +1030,8 @@ class DensityPeaks(ClusterSKlearn):
         print('Max gap between probabilities: ',np.max(pos_probs_ord[1:] / pos_probs_ord[:-1]))
         print('Number of samples with zero prob = ',np.sum(probs_gmm < min_finite_prob))
         probs_gmm[probs_gmm < min_finite_prob] = min_finite_prob /  (2*np.max(pos_probs_ord[1:] / pos_probs_ord[:-1]))
-        energies = -1.0*np.log(probs_gmm)
-        #energies = -1.0*np.log(probs)
+        #energies = -1.0*np.log(probs_gmm)
+        energies = -1.0*np.log(probs)
         if pdf is not None:
             f = plt.figure()
             ax1 = f.add_subplot(111)
@@ -1057,7 +1062,7 @@ class DensityPeaks(ClusterSKlearn):
         delta_energy_best = -np.inf
         for metric in ['euclidean', 'manhattan', 'chebyshev', 'angular']:
             self.dist = self.distance_matrix(metric)
-            percent, n_cluster, delta_energy = self.test_percents_clusters(percents, n_stds_delta, ns_clusters, pdf)
+            percent, n_cluster, delta_energy, dummy = self.test_percents_clusters(percents, n_stds_delta, ns_clusters, pdf)
             print('Best energy for metric {0:s} {1:f}'.format(metric, delta_energy))
             if delta_energy > delta_energy_best:
                 delta_energy_best = delta_energy
@@ -1081,8 +1086,8 @@ class DensityPeaks(ClusterSKlearn):
         if isinstance(percents, list):
             if len(percents) == 1:
                 percents = percents[0]
-        if (isinstance(percents, float) or isinstance(percents, int)) and (isinstance(ns_clusters, float) or isinstance(ns_clusters, int)): # dummy case, both percents and ns_clusters are defined
-            return percents, ns_clusters, 0.0
+        if (isinstance(percents, float) or isinstance(percents, int)) and (isinstance(ns_clusters, float) or isinstance(ns_clusters, int) or isinstance(ns_clusters, np.int64)): # dummy case, both percents and ns_clusters are defined
+            return percents, ns_clusters, 0.0, 0.0
         if (isinstance(percents, float) or isinstance(percents, int)):
             percents = [percents,]
         if (ns_clusters is None) or isinstance(ns_clusters,int): # in this case different percents values are tested, clusters is fixed (if defined) or calculated from n_stds_delta
@@ -1113,13 +1118,26 @@ class DensityPeaks(ClusterSKlearn):
                 plt.close()
             delta_energies[np.isnan(delta_energies)] = -np.inf
             ind_best = np.argsort(delta_energies)[-1]
-            return percents[ind_best], number_clusters[ind_best], delta_energies[ind_best]
+            return percents[ind_best], number_clusters[ind_best], delta_energies[ind_best], delta_energies
         else: # in this case it means that a list of clusters was provided
             delta_energies = -np.inf*np.ones((len(percents), len(ns_clusters)))
             for i, percent in enumerate(percents):
                 delta_energies[i,:] = self.get_energy(percent, n_stds_delta, ns_clusters, pdf)
                 i_best_cluster = np.argmax(delta_energies[i,:])
                 print('Test with percent {0:f} - best n_clusters {1:d} - energy {2:f}'.format(float(percent), int(ns_clusters[i_best_cluster]), delta_energies[i, i_best_cluster]))
+            if pdf is not None:
+                for i_percent, percent in enumerate(percents):
+                    f = plt.figure()
+                    ax = f.add_subplot(111)
+                    ax.plot(ns_clusters, delta_energies[i_percent,:], 'o-k')
+                    if self.verbose > 1:
+                        print('Number of clusters = ',ns_clusters)
+                        print('Energies = ',delta_energies[i_percent,:])
+                    plt.xlabel('Number of clusters')
+                    plt.ylabel('Cost Function')
+                    plt.title('Percent = {0:f}'.format(float(percent)))
+                    pdf.savefig()
+                    plt.close()
             if len(percents) > 1:
                 f = plt.figure()
                 ax = f.add_subplot(211)
@@ -1143,22 +1161,15 @@ class DensityPeaks(ClusterSKlearn):
                 plt.gca().set_yticks(inds_ticks)
                 plt.gca().set_yticklabels(np.array(percents)[inds_ticks])
                 f.colorbar(cax)
-            else:
-                f = plt.figure()
-                ax = f.add_subplot(111)
-                ax.plot(ns_clusters, delta_energies[0,:], 'o-k')
-                if self.verbose > 1:
-                    print('Number of clusters = ',ns_clusters)
-                    print('Energies = ',delta_energies[0,:])
-                plt.xlabel('Number of clusters')
-                plt.ylabel('Cost Function')
-            if pdf is not None:
-            	pdf.savefig()
-            	plt.close()
-            else:
-            	plt.show()
+                if pdf is not None:
+                	pdf.savefig()
+                	plt.close()
+                else:
+                	plt.show()
+            #from scipy.signal import argrelextrema
+            #argrelextrema(x, np.greater)
             i_best, j_best = np.unravel_index(np.argsort(delta_energies.flatten())[-1],delta_energies.shape)
-            return percents[i_best], ns_clusters[j_best], delta_energies[i_best, j_best]
+            return percents[i_best], ns_clusters[j_best], delta_energies[i_best, j_best], delta_energies
     def search_cluster_centers(self, percents = 10.0, metric = 'euclidean', n_stds_delta = None, ns_clusters = None, manual_refine = False, pdf = None, **kwargs):
         """
         Test parameters and find the cluster centers
@@ -1167,7 +1178,7 @@ class DensityPeaks(ClusterSKlearn):
             metric = self.test_metrics(percents, n_stds_delta, ns_clusters, pdf)
             print('Proceeding with metric {0:s}'.format(metric))
         self.dist = self.distance_matrix(metric)
-        percent, n_clusters, delta_energy = self.test_percents_clusters(percents, n_stds_delta, ns_clusters, pdf)
+        percent, n_clusters, delta_energy, delta_energies = self.test_percents_clusters(percents, n_stds_delta, ns_clusters, pdf)
         if self.verbose > 0:
             print('Clustering with the Distance-Peaks algorithm, with percent {0:f}'.format(percent))
         self.get_energy(percent, n_stds_delta, n_clusters, pdf)
@@ -1177,6 +1188,7 @@ class DensityPeaks(ClusterSKlearn):
             delta_norm = (self.delta - np.min(self.delta)) / (np.max(self.delta) - np.min(self.delta))
             self.manual_clusters_selector = graphics.PointInteractor(np.log10(rho_norm), np.log10(delta_norm), self.ind_cluster_centers)
             self.manual_clusters_selector.run()
+        return delta_energies
     def fit(self, halo = 0.0,  pdf = None, **kwargs):
         """
         Parameters
@@ -1698,6 +1710,20 @@ if __name__ == '__main__':
     print('------------------')
     print('Testing cluster.py')
     print('------------------')
+    np.set_printoptions(precision = np.inf)
+
+    #mp.dps = 10
+    #print(type(erf(4.0)))
+    ##print(0.5*(1.0 - erf( (x) / (np.sqrt(2)) ) ))
+    ##print(type(sperf(x)))
+    ##print('{0:.100f}'.format(sperf(x)))
+    ##exit()
+
+    #from scipy.special import erf
+    ##from mpmath import *
+    #mp.dps = 10
+    #print(type(erf(4.0)))
+    #exit()
 
     pdf = PdfPages('./test.pdf')
 

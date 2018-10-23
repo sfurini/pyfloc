@@ -177,9 +177,10 @@ class PyFloc(object):
             pdf = PdfPages('{0:s}_fit_cluster_{1:d}.pdf'.format(self.prefix, self.counter))
         else:
             pdf = None
+        delta_energies = None
         if mode == 'DP':
             self.cluster = cluster.DensityPeaks(trajs = [data_norm,], labels = labels, verbose = verbose)
-            self.cluster.search_cluster_centers(pdf = pdf, **kwargs)
+            delta_energies = self.cluster.search_cluster_centers(pdf = pdf, **kwargs)
         elif mode == 'DPKNN':
             self.cluster = cluster.TrainingKNN(trajs = [data_norm,], labels = labels, verbose = verbose)
             self.cluster.fit(kwargs['ns_clusters'], percent = kwargs.get('percents',10.0), training_samples = kwargs.get('training_samples',10000), n_rounds = kwargs.get('n_rounds',100), pdf = pdf)
@@ -190,6 +191,7 @@ class PyFloc(object):
             raise NotImplementedError('ERROR: mode {0:s} not implemented'.format(mode))
         if verbose > 1:
             pdf.close()
+        return delta_energies
     def predict_cluster(self, verbose = None, **kwargs):
         #--- Use default verbosity if not defined
         if verbose is None:

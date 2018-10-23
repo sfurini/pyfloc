@@ -2,5 +2,5 @@
 /pyfloc/*pdf
 /pyfloc/*ipynb
 /pyfloc/__pycache__/
-/examples/*pdf
+/examples/*
 .DS_Store
