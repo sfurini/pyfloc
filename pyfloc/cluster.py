@@ -80,7 +80,8 @@ class Cluster(object):
         set_labels = set()
         for labels_traj in labels:
             for label in labels_traj:
-                set_labels.add(label)
+                if not np.isnan(label):
+                    set_labels.add(label)
         list_labels = list(set_labels)
         list_labels.sort()
         dict_labels = {}
@@ -90,7 +91,7 @@ class Cluster(object):
         for labels_traj in labels:
             label_traj_new = []
             for label in labels_traj:
-                label_traj_new.append(dict_labels[label])
+                label_traj_new.append(dict_labels.get(label,-1))
             self.labels.append(np.array(label_traj_new))
         #--- Create merged trajectories / labels
         self.trajs_merged = np.vstack([traj for traj in self.trajs]).astype('float64')
@@ -143,7 +144,8 @@ class Cluster(object):
         labels = set()
         for labels_traj in self.labels:
             for label in labels_traj:
-                labels.add(label)
+                if label > 0:
+                    labels.add(label)
         return labels
     def n_labels(self):
         """Return the number of reference labels"""
@@ -173,7 +175,7 @@ class Cluster(object):
             self.fit(*args, **kwargs)
         self.transform()
         if self.clusters_analogic.size == 0: # the clustering algorithm did not define clusters_analogic, so it's done here using the centroids
-            self.clusters_analogic =self.centroids()
+            self.clusters_analogic = self.centroids()
     def analogic(self, dtraj):
         """Return the discretized trajectory in analogic form"""
         if not isinstance(dtraj,np.ma.MaskedArray):
@@ -332,7 +334,7 @@ class Cluster(object):
             if mode == 'manhattan':
                 dist = np.sum(dist_dims, axis = 0)
             elif mode == 'chebyshev':
-                dist = np.min(dist_dims, axis = 0)
+                dist = np.max(dist_dims, axis = 0)
         elif mode == 'euclidean':
             dist = pairwise_distances(self.trajs_merged)
         elif mode == 'angular':
@@ -359,8 +361,10 @@ class Cluster(object):
                 true_positive = 0
                 for i_traj, dtraj in enumerate(self.dtrajs):
                     labels = self.labels[i_traj]
-                    samples_i_cluster = (dtraj == i_cluster)
-                    samples_i_label = (labels == i_label)
+                    dtraj_classified = dtraj[labels >= 0]
+                    labels_classified = labels[labels >= 0]
+                    samples_i_cluster = (dtraj_classified == i_cluster)
+                    samples_i_label = (labels_classified == i_label)
                     detected += np.sum(samples_i_cluster)
                     true += np.sum(samples_i_label)
                     true_positive += np.sum(samples_i_label*samples_i_cluster)
@@ -551,7 +555,6 @@ class Cluster(object):
     def __str__(self):
         output = 'Results of clustering with method {0:s}\n'.format(self.name)
         n_samples_per_cluster = self.n_samples()
-        labels_found = []
         if self.labels is not None:
             n_samples_per_label = self.n_samples_labels()
             for i, label in enumerate(np.argsort(n_samples_per_label)):
@@ -570,8 +573,6 @@ class Cluster(object):
                     output += '\t\tprecision = {0:f}\n'.format(precision[i_cluster])
                     output += '\t\trecall = {0:f}\n'.format(recall[i_cluster])
                     output += '\t\tf-score = {0:f}\n'.format(f[i_cluster])
-                    if f[i_cluster] > 0.2:
-                        labels_found.append(pairing_labels[i_cluster])
                 else:
                     if i_cluster in pairing_clusters:
                         i_label = np.where(pairing_clusters == i_cluster)[0][0]
@@ -580,18 +581,24 @@ class Cluster(object):
                         output += '\t\tprecision = {0:f}\n'.format(precision[i_label])
                         output += '\t\trecall = {0:f}\n'.format(recall[i_label])
                         output += '\t\tf-score = {0:f}\n'.format(f[i_label])
-                        if f[i_label] > 0.2:
-                            labels_found.append(label)
         if self.labels:
-            labels_found.sort()
-            output += '\tLabels found: '+str(labels_found)+'\n'
-            output += '\tAverage f-score = {0:f} +/- {1:f}\n'.format(np.mean(f), np.std(f))
+            output += '\tAverage f-score = {0:f} +/- {1:f} ; n_cluster = {2:d} f_score_all = {3:f}\n'.format(np.mean(f), np.std(f), self.n_clusters(), np.mean(f)*min(self.n_clusters()/self.n_labels(),1.0))
         return output[:-1]
     def dump(self, file_name):
         with open(file_name,'wb') as fout:
             pickle.dump(self, fout)
 
-class Unique(Cluster):
+class ClusterSKlearn(Cluster):
+    """
+    Attributes
+    ----------
+    """
+    def __init__(self, trajs = None, labels = [], verbose = 0):
+        super(ClusterSKlearn, self).__init__(trajs, labels, verbose)
+    def predict(self, traj):
+        return self.algorithm.predict(traj)
+
+class Unique(ClusterSKlearn):
     """
     Class for clustering each unique point in its own cluster
     N.B. It works only when feature values are integer numbers
@@ -601,8 +608,8 @@ class Unique(Cluster):
     list_samples: list
         List of all the unique values
     """
-    def __init__(self, trajs, labels = None):
-        super(Unique,self).__init__(trajs, labels)
+    def __init__(self, trajs = None, labels = [], verbose = 0):
+        super(Unique, self).__init__(trajs, labels, verbose)
         self.list_samples = []
         self.name = 'Single Points'
     def fit(self):
@@ -617,21 +624,12 @@ class Unique(Cluster):
             self.list_samples.append(list(sample))
         self.clusters_analogic = np.array(self.list_samples)
         print('Number of unique samples = ',len(set_samples))
+        self.fit_done = True
     def predict(self, traj):
         dtraj = []
         for i_frame in range(self.n_frames_traj(traj)):
             dtraj.append(self.list_samples.index(list(traj[i_frame,:])))
         return np.array(dtraj)
-
-class ClusterSKlearn(Cluster):
-    """
-    Attributes
-    ----------
-    """
-    def __init__(self, trajs = None, labels = [], verbose = 0):
-        super(ClusterSKlearn, self).__init__(trajs, labels, verbose)
-    def predict(self, traj):
-        return self.algorithm.predict(traj)
 
 class Kmeans(ClusterSKlearn):
     def __init__(self, trajs = None, labels = [], verbose = 0):
@@ -770,58 +768,6 @@ class GaussianMixture(ClusterSKlearn):
 #		self.algorithm = SpectralClustering(n_clusters=nclusters)
 #		self.algorithm.fit(self.data)
 #		self.name='SpectralClustering'
-### MM inizio
-class KDPKNN(Cluster):
-    def __init__(self, n_clusters, trajs = None, ref_labels = None, percent = 1.0):
-        if ref_labels is not None:
-            ref_labels = [np.hstack([ref_label for ref_label in ref_labels]).astype('int')]
-        super(KDPKNN,self).__init__(trajs, ref_labels)
-        self.label = -1*np.ones(self.n_frames(), dtype = np.int)
-        self.n_clusters = n_clusters
-        self.percent = percent
-	#self.min_samples_per_region = min_samples_per_region
-    def run(self, pdf = None):
-	#k = int(np.sqrt(len(self.trajs[0])))
-        k = int(len(self.trajs[0])**(1.0/3.0))
-        k = np.minimum(k,100)
-        print ("k = ", k)
-        min_samples_per_region = np.maximum(50 - k, 10) #piu' regioni ci sono, meno punti e' necessario prendere
-        n_clusters_DP_per_region = 5
-        C = run('Kmeans', trajs = self.trajs, n_clusters = k, pdf = pdf)
-        #C = Kmeans(trajs = self.trajs, labels = self.labels)
-        #C.fit(n_clusters = k)       
-        u = np.unique(C.dtrajs[0])
-        taken = []
-        for i in range(len(u)):
-            i_taken = np.where(C.dtrajs[0] == u[i])[0]
-            data = [self.trajs[0][i_taken]] 
-            D = run('DensityPeaks', trajs = data, n_clusters = n_clusters_DP_per_region, percents = 1.0, pdf = pdf)
-            #dummy, dummy2, i_cluster_centers = D.fit(pdf) #oltre ai centri dei cluster fatti restituire altri 2 punti appartenenti a quel cluster
-            i_cluster_centers = D.ind_cluster_centers
-            labels = D.dtrajs[0]
-            labels[i_cluster_centers] = -1
-            points_per_label = []
-            for j in range(len(i_cluster_centers)):
-                i_labels = np.where(labels==j)[0]
-                i_min = np.minimum(len(i_labels), min_samples_per_region)
-                points_per_label.append(i_labels[0:i_min])
-            points_list = [val for sublist in points_per_label for val in sublist]
-            taken.append(i_taken[i_cluster_centers]) #indice dei centri dei cluster
-            taken.append(i_taken[points_list])
-        taken = [val for sublist in taken for val in sublist]	
-        data_final_step = [self.trajs[0][taken]]
-        training = run('DensityPeaks', trajs = data_final_step, n_clusters =self.n_clusters, pdf = pdf) 
-        labels = training.dtrajs[0]
-        from sklearn.neighbors import KNeighborsClassifier
-        print ('Clustering data with KNN algorithm...')
-        clustering = KNeighborsClassifier()
-        clustering.fit(data_final_step[0], labels)
-        dtraj = clustering.predict(self.trajs[0])
-        self.bin_centers = np.empty((len(set(dtraj)),self.n_dims()))
-        for i_cluster in range(len(set(dtraj))):
-            self.bin_centers[i_cluster,:] = np.mean(self.trajs[0][dtraj == i_cluster,:],axis = 0)
-        self.dtrajs = [dtraj]
-### MM fine
 
 class DensityPeaks(ClusterSKlearn):
     """
@@ -856,51 +802,65 @@ class DensityPeaks(ClusterSKlearn):
         self.manual_clusters_selector = None
         self.kernel_radius = -1.0
         self.name = 'Density Peaks'
-    def get_energy(self, percent, n_stds_delta, ns_clusters, pdf, n_gaussians = 1):
+    def get_energy(self, kernel_radius, n_stds_delta, ns_clusters, pdf, n_gaussians = 1, kernel = 'gaussian'):
         """
-        It finds the best candidates as cluster centers and return the delta energy for this clustering scheme
+        get_energy finds the best candidates as cluster centers and return a cost function which is maximum when the clusters are better separated from each other (ideally...)
 
-        See DensityPeaks.fit for parameter definition
-
+        kernel_radius   float/str
+            If str, it needs to start with p, and the remaining part defines which percentile of the distances among samples is used to define the kernel radius
+            If float, this is the distance used to define the kernel radius
+        n_stds_delta    float
         n_gaussians int
-            Number of gaussians used to fit delta
+            Number of gaussians used to fit delta as a function of rho in the rho-delta plot
+        kernel  str
+            Which kernel is used to calculate the rho-delta plot. Possible values:
+                * square
+                * gaussian
 
         Return
         ------
         float
-            The energy
+            The cost function
         """
         from hiprec_erf import hiprec_erf
         from sklearn.mixture import GaussianMixture as GM
-        if isinstance(ns_clusters, float):
+        if isinstance(ns_clusters, float) or isinstance(ns_clusters, np.float64):
             ns_clusters = int(ns_clusters)
-        mask = np.logical_not(np.eye(self.dist.shape[0]).astype('bool'))
-        #self.kernel_radius = np.percentile(self.dist[mask], percent)
-        self.kernel_radius = percent
+        if isinstance(kernel_radius,str):
+            if kernel_radius[0] == 'p': # the radius of the kernel is defined as a percentile of the distances between samples
+                try:
+                    percentile = float(kernel_radius[1:])
+                except:
+                    print(len(kernel_radius))
+                    print(len(kernel_radius))
+                    raise ValueError('ERROR: wrong value for kernel_radius {0:s}'.format(kernel_radius))
+                mask = np.logical_not(np.eye(self.dist.shape[0]).astype('bool'))
+                self.kernel_radius = np.percentile(self.dist[mask], percentile)
+            else:
+                raise ValueError('ERROR: wrong value for kernel_radius')
+        else: # the radius of the kernel is defined as an input parameter
+            self.kernel_radius = kernel_radius
         if self.kernel_radius <= 0.0:
             self.ind_cluster_centers = []
             return -np.inf
-        #--- Computing density (rho)
         if self.verbose > 0:
-            print('Computing densities using kernel with radius {0:12.6f}'.format(self.kernel_radius))
-        if ns_clusters is None:
-            if self.verbose > 0:
-                print('Considering as cluster centers the samples above {0:f} stds along delta'.format(n_stds_delta))
-        elif isinstance(ns_clusters,int):
-            if self.verbose > 0:
-                print('Selecting {0:d} clusters'.format(ns_clusters))
-        elif isinstance(ns_clusters,list):
+            print('Computing densities using kernel with radius: {0:12.6f}'.format(self.kernel_radius))
+            if ns_clusters is None:
+                    print('Considering as cluster centers the samples above {0:f} standard deviations along delta'.format(n_stds_delta))
+            elif isinstance(ns_clusters,int) or isinstance(ns_clusters,np.int64):
+                    print('Selecting {0:d} clusters'.format(ns_clusters))
+        if isinstance(ns_clusters,list):
             ns_clusters = [int(n_clusters) for n_clusters in ns_clusters] # to be sure that they're all integers
-        #--- Gaussian kernel
-        kernel_matrix = np.exp(-np.power(self.dist/self.kernel_radius,2.0))
-        kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
-        #--- Square kernel
-        #kernel_matrix = (self.dist < self.kernel_radius)
-        #--- Sum for all samples
+        #--- Computing density (rho)
+        if kernel == 'gaussian':
+            kernel_matrix = np.exp(-np.power(self.dist/self.kernel_radius,2.0))
+            kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
+        elif kernel == 'square':
+            kernel_matrix = (self.dist < self.kernel_radius)
+        else:
+            raise ValueError('ERROR: wrong kernel parameter')
         self.rho = np.sum(kernel_matrix, axis = 1)
         #--- Computing distances from higher density samples (delta)
-        if self.verbose > 0:
-            print('Searching neighbours')
         ordrho = np.argsort(self.rho)[-1::-1]
         rho_sorted = self.rho[ordrho]
         self.nneigh[ordrho[0]] = ordrho[0] # arbitrary convention: for the point with highest density, the neighbour at with higher density is itself
@@ -917,7 +877,7 @@ class DensityPeaks(ClusterSKlearn):
         if pdf is not None:
             f = plt.figure()
             ax1 = f.add_subplot(2,1,1)
-            plt.title('Percentile {0:f}'.format(percent))
+            plt.title('Kernel radius {0:f}'.format(self.kernel_radius))
             ax2 = f.add_subplot(2,1,2)
             ax1.plot(self.rho,self.delta,'.k', markersize = 1.0)
             plt.ylabel('delta')
@@ -940,7 +900,7 @@ class DensityPeaks(ClusterSKlearn):
         means_deltas = []
         stds_deltas = []
         rho_bins = []
-        gaussian_mixture_models = [] # vettore degli oggetti gaussian mixture
+        gaussian_mixture_models = []
         for ir in range(len(rho_edges)-1):
             inds_sample_bin = (rho_norm_log > rho_edges[ir]) * (rho_norm_log <= rho_edges[ir+1]) * np.isfinite(rho_norm_log) * np.isfinite(delta_norm_log)
             if np.sum(inds_sample_bin) > 10: # check if there are enough samples in the bin
@@ -948,9 +908,8 @@ class DensityPeaks(ClusterSKlearn):
                 delta_in_bins = delta_norm_log[inds_sample_bin]
                 means_deltas.append(np.mean(delta_in_bins))
                 stds_deltas.append(np.std(delta_norm_log[inds_sample_bin]))
-                #2) percentile above mean
-                #deltas_above_mean = delta_in_bins[delta_in_bins > means_deltas[-1]] - means_deltas[-1]
-                #std_deltas = np.percentile(deltas_above_mean, 68.27)
+                # ALTERNATIVE STRATEGY: percentile above mean
+                #std_deltas = np.percentile(delta_in_bins[delta_in_bins > means_deltas[-1]] - means_deltas[-1], 68.27)
                 #stds_deltas.append(std_deltas)
                 #delta_in_bins = delta_in_bins[delta_in_bins > means_deltas[-1]]
                 delta_in_bins = delta_in_bins[delta_in_bins < np.percentile(delta_in_bins, 90)]
@@ -967,10 +926,10 @@ class DensityPeaks(ClusterSKlearn):
         f_stds = sp.interpolate.interp1d(rho_bins, stds_deltas, bounds_error = False, fill_value = (stds_deltas[0], stds_deltas[-1]))
         rho_bins = np.array(rho_bins)
         rho_delta = np.min(rho_bins[1:] - rho_bins[:-1])
-        if pdf is not None:
+        if (self.verbose > 0) and (pdf is not None):
             f = plt.figure()
             ax = f.add_subplot(111)
-            plt.title('Percentile {0:f}'.format(percent))
+            plt.title('Kernel radius = '+str(kernel_radius))
             ax.plot(rho_norm_log, delta_norm_log,'.k', markersize = 1.0)
             rho_th = np.linspace(np.min(rho_norm_log[np.isfinite(rho_norm_log)]),np.max(rho_norm_log[np.isfinite(rho_norm_log)]),100)
             ax.plot(rho_th, f_means(rho_th), '-r')
@@ -979,12 +938,8 @@ class DensityPeaks(ClusterSKlearn):
             ax.errorbar(rho_bins, means_deltas, yerr = stds_deltas)
             for i_gmm, gmm in enumerate(gaussian_mixture_models):
                 delta_th = np.linspace(np.min(delta_norm_log[np.isfinite(delta_norm_log)]), 0.0, 1000)
-                #print('rho_delta = ',rho_delta)
-                #print('delta_th = ',delta_th)
                 gauss_th = gmm.score_samples(delta_th.reshape(-1,1))
                 gauss_th = np.exp(gauss_th)
-                #print('gauss_th = ',gauss_th)
-                #print('cov = ',gmm.covariances_)
                 gauss_th = rho_bins[i_gmm] + rho_delta * ( -0.5 +  (gauss_th - np.min(gauss_th)) / (np.max(gauss_th) - np.min(gauss_th)) )
                 ax.plot(gauss_th, delta_th, '-g')
                 for i_gauss in range(gmm.n_components):
@@ -996,7 +951,7 @@ class DensityPeaks(ClusterSKlearn):
         #------ Search for outliers
         for i_sample in range(self.n_frames()):
             if delta_norm_log[i_sample] > f_means(rho_norm_log[i_sample]):
-                # 1) compute prob(delta > mu) assuming gaussian 
+                # 1) compute prob(delta > mu) assuming gaussian distributions
                 mu = f_means(rho_norm_log[i_sample])
                 sigma = f_stds(rho_norm_log[i_sample])
                 x = delta_norm_log[i_sample]
@@ -1004,7 +959,7 @@ class DensityPeaks(ClusterSKlearn):
                 if n_stds_delta is not None:
                     if delta_norm_log[i_sample] > f_means(rho_norm_log[i_sample]) + n_stds_delta*f_stds(rho_norm_log[i_sample]):
                         ind_cluster_centers.append(i_sample)
-                # 2) compute prob(delta > mu) using gaussianmixtures
+                # 2) compute prob(delta > mu) using gaussian mixtures models
                 if np.min(np.abs(rho_norm_log[i_sample] - rho_bins)) < (rho_edges[1]-rho_edges[0]):
                     i_gmm = np.argmin(np.abs(rho_norm_log[i_sample] - rho_bins))
                     gmm = gaussian_mixture_models[i_gmm]
@@ -1018,7 +973,7 @@ class DensityPeaks(ClusterSKlearn):
                         #if probs_gmm[i_sample] == 0.0:
                         #    print('i_gauss = ',i_gauss,' mu = ',mu, ' sigma = ', sigma,'probs_gmm = ',probs_gmm[i_sample], ' hp = ',hp, ' delta = ', float(( (x - mu) / (np.sqrt(2)*sigma) )))
                     if probs_gmm[i_sample] == 0.0:
-                        print('WARNING: zero probability sample  = ',probs_gmm[i_sample])
+                        print('WARNING: zero probability sample')
                         probs_gmm[i_sample] = np.finfo(probs_gmm.dtype).min
         probs[np.logical_not(np.isfinite(probs))] = 1.0 # in this way it gives no contribution to the logarithm
         probs[np.isnan(probs)] = 1.0 # in this way it gives no contribution to the logarithm
@@ -1027,12 +982,12 @@ class DensityPeaks(ClusterSKlearn):
         probs_gmm[np.isnan(probs_gmm)] = 1.0 # in this way it gives no contribution to the logarithm
         min_finite_prob = np.min(probs_gmm[probs_gmm > 0])
         pos_probs_ord = np.sort(probs_gmm[probs_gmm > 0])
-        print('Max gap between probabilities: ',np.max(pos_probs_ord[1:] / pos_probs_ord[:-1]))
-        print('Number of samples with zero prob = ',np.sum(probs_gmm < min_finite_prob))
+        #print('Max gap between probabilities: ',np.max(pos_probs_ord[1:] / pos_probs_ord[:-1]))
+        #print('Number of samples with zero prob = ',np.sum(probs_gmm < min_finite_prob))
         probs_gmm[probs_gmm < min_finite_prob] = min_finite_prob /  (2*np.max(pos_probs_ord[1:] / pos_probs_ord[:-1]))
         #energies = -1.0*np.log(probs_gmm)
         energies = -1.0*np.log(probs)
-        if pdf is not None:
+        if (self.verbose > 0) and (pdf is not None):
             f = plt.figure()
             ax1 = f.add_subplot(111)
             ax1.scatter(rho_norm_log, delta_norm_log, c = energies)
@@ -1055,20 +1010,20 @@ class DensityPeaks(ClusterSKlearn):
             return delta_energies
         delta_energy = ( np.mean(energies[-len(self.ind_cluster_centers):]) - np.mean(energies[-2*len(self.ind_cluster_centers):-len(self.ind_cluster_centers)]) )  # this is equal to (energy cluster centers) - (energy other samples above average)
         return delta_energy
-    def test_metrics(self, percents, n_stds_delta, ns_clusters = None, pdf = None):
+    def test_metrics(self, radii, n_stds_delta, ns_clusters = None, pdf = None):
         """
         For parameter definition see DensityPeaks.fit
         """
         delta_energy_best = -np.inf
         for metric in ['euclidean', 'manhattan', 'chebyshev', 'angular']:
             self.dist = self.distance_matrix(metric)
-            percent, n_cluster, delta_energy, dummy = self.test_percents_clusters(percents, n_stds_delta, ns_clusters, pdf)
+            radius, n_cluster, delta_energy, dummy = self.test_radii_clusters(radii, n_stds_delta, ns_clusters, pdf)
             print('Best energy for metric {0:s} {1:f}'.format(metric, delta_energy))
             if delta_energy > delta_energy_best:
                 delta_energy_best = delta_energy
                 metric_best = metric
         return metric_best
-    def test_percents_clusters(self, percents, n_stds_delta, ns_clusters, pdf):
+    def test_radii_clusters(self, radii, n_stds_delta, ns_clusters, pdf):
         """
         Try all the percent values and return the one giving the higher energy
 
@@ -1083,28 +1038,28 @@ class DensityPeaks(ClusterSKlearn):
         """
         if (n_stds_delta is not None) and (ns_clusters is not None):
             raise ValueError('ERROR: define ns_clusters OR n_stds_delta')
-        if isinstance(percents, list):
-            if len(percents) == 1:
-                percents = percents[0]
-        if (isinstance(percents, float) or isinstance(percents, int)) and (isinstance(ns_clusters, float) or isinstance(ns_clusters, int) or isinstance(ns_clusters, np.int64)): # dummy case, both percents and ns_clusters are defined
-            return percents, ns_clusters, 0.0, 0.0
-        if (isinstance(percents, float) or isinstance(percents, int)):
-            percents = [percents,]
-        if (ns_clusters is None) or isinstance(ns_clusters,int): # in this case different percents values are tested, clusters is fixed (if defined) or calculated from n_stds_delta
-            delta_energies = -np.inf*np.ones(len(percents))
-            number_clusters = np.zeros(len(percents))
-            for i, percent in enumerate(percents):
-                delta_energies[i] = self.get_energy(percent, n_stds_delta, ns_clusters, pdf)
+        if isinstance(radii, list):
+            if len(radii) == 1:
+                radii = radii[0]
+        if (isinstance(radii, str) or isinstance(radii, float) or isinstance(radii, int)) and (isinstance(ns_clusters, float) or isinstance(ns_clusters, int) or isinstance(ns_clusters, np.int64)): # dummy case, both radii and ns_clusters are defined
+            return radii, ns_clusters, 0.0, 0.0
+        if (isinstance(radii, str) or isinstance(radii, float) or isinstance(radii, int)):
+            radii = [radii,]
+        if (ns_clusters is None) or isinstance(ns_clusters,int): # in this case different radii values are tested, clusters is fixed (if defined) or calculated from n_stds_delta
+            delta_energies = -np.inf*np.ones(len(radii))
+            number_clusters = np.zeros(len(radii))
+            for i, radius in enumerate(radii):
+                delta_energies[i] = self.get_energy(radius, n_stds_delta, ns_clusters, pdf)
                 number_clusters[i] = len(self.ind_cluster_centers)
-                print('Test with percent {0:f} - energy {1:f} - n_clusters {2:d}'.format(float(percent), delta_energies[i], int(number_clusters[i])))
+                print('Test with radius {0:f} - energy {1:f} - n_clusters {2:d}'.format(float(radius), delta_energies[i], int(number_clusters[i])))
             if pdf is not None:
                 f = plt.figure()
                 ax1 = f.add_subplot(211)
-                ax1.plot(percents, delta_energies, 'o-k')
+                ax1.plot(radii, delta_energies, 'o-k')
                 plt.xlabel('Percentile distance')
                 plt.ylabel('Delta energy')
                 ax2 = f.add_subplot(212)
-                ax2.plot(percents, number_clusters, 'o-k')
+                ax2.plot(radii, number_clusters, 'o-k')
                 plt.xlabel('Percentile distance')
                 plt.ylabel('Number of clusters')
                 pdf.savefig()
@@ -1118,27 +1073,27 @@ class DensityPeaks(ClusterSKlearn):
                 plt.close()
             delta_energies[np.isnan(delta_energies)] = -np.inf
             ind_best = np.argsort(delta_energies)[-1]
-            return percents[ind_best], number_clusters[ind_best], delta_energies[ind_best], delta_energies
+            return radii[ind_best], number_clusters[ind_best], delta_energies[ind_best], delta_energies
         else: # in this case it means that a list of clusters was provided
-            delta_energies = -np.inf*np.ones((len(percents), len(ns_clusters)))
-            for i, percent in enumerate(percents):
-                delta_energies[i,:] = self.get_energy(percent, n_stds_delta, ns_clusters, pdf)
+            delta_energies = -np.inf*np.ones((len(radii), len(ns_clusters)))
+            for i, radius in enumerate(radii):
+                delta_energies[i,:] = self.get_energy(radius, n_stds_delta, ns_clusters, pdf)
                 i_best_cluster = np.argmax(delta_energies[i,:])
-                print('Test with percent {0:f} - best n_clusters {1:d} - energy {2:f}'.format(float(percent), int(ns_clusters[i_best_cluster]), delta_energies[i, i_best_cluster]))
+                print('Test with kernel radius ',radius,' - best n_clusters {0:d} - energy {1:f}'.format(int(ns_clusters[i_best_cluster]), delta_energies[i, i_best_cluster]))
             if pdf is not None:
-                for i_percent, percent in enumerate(percents):
+                for i_radius, radius in enumerate(radii):
                     f = plt.figure()
                     ax = f.add_subplot(111)
-                    ax.plot(ns_clusters, delta_energies[i_percent,:], 'o-k')
+                    ax.plot(ns_clusters, delta_energies[i_radius,:], 'o-k')
                     if self.verbose > 1:
                         print('Number of clusters = ',ns_clusters)
-                        print('Energies = ',delta_energies[i_percent,:])
+                        print('Energies = ',delta_energies[i_radius,:])
                     plt.xlabel('Number of clusters')
                     plt.ylabel('Cost Function')
-                    plt.title('Percent = {0:f}'.format(float(percent)))
+                    plt.title('Percent '+str(radius))
                     pdf.savefig()
                     plt.close()
-            if len(percents) > 1:
+            if len(radii) > 1:
                 f = plt.figure()
                 ax = f.add_subplot(211)
                 cax = ax.imshow(delta_energies, aspect = 'auto',cmap = 'inferno')
@@ -1146,9 +1101,9 @@ class DensityPeaks(ClusterSKlearn):
                 inds_ticks = np.arange(0,len(ns_clusters),max(1,int(np.round(len(ns_clusters)/10)))).astype(int)
                 plt.gca().set_xticks(inds_ticks)
                 plt.gca().set_xticklabels(np.array(ns_clusters)[inds_ticks])
-                inds_ticks = np.arange(0,len(percents),max(1,int(np.round(len(percents)/10)))).astype(int)
+                inds_ticks = np.arange(0,len(radii),max(1,int(np.round(len(radii)/10)))).astype(int)
                 plt.gca().set_yticks(inds_ticks)
-                plt.gca().set_yticklabels(np.array(percents)[inds_ticks])
+                plt.gca().set_yticklabels(np.array(radii)[inds_ticks])
                 f.colorbar(cax)
                 ax = f.add_subplot(212)
                 cax = ax.imshow(delta_energies / np.max(delta_energies, axis = 1).reshape(delta_energies.shape[0],1), aspect = 'auto', cmap = 'inferno')
@@ -1157,9 +1112,9 @@ class DensityPeaks(ClusterSKlearn):
                 inds_ticks = np.arange(0,len(ns_clusters),max(1,int(np.round(len(ns_clusters)/10)))).astype(int)
                 plt.gca().set_xticks(inds_ticks)
                 plt.gca().set_xticklabels(np.array(ns_clusters)[inds_ticks])
-                inds_ticks = np.arange(0,len(percents),max(1,int(np.round(len(percents)/10)))).astype(int)
+                inds_ticks = np.arange(0,len(radii),max(1,int(np.round(len(radii)/10)))).astype(int)
                 plt.gca().set_yticks(inds_ticks)
-                plt.gca().set_yticklabels(np.array(percents)[inds_ticks])
+                plt.gca().set_yticklabels(np.array(radii)[inds_ticks])
                 f.colorbar(cax)
                 if pdf is not None:
                 	pdf.savefig()
@@ -1169,19 +1124,19 @@ class DensityPeaks(ClusterSKlearn):
             #from scipy.signal import argrelextrema
             #argrelextrema(x, np.greater)
             i_best, j_best = np.unravel_index(np.argsort(delta_energies.flatten())[-1],delta_energies.shape)
-            return percents[i_best], ns_clusters[j_best], delta_energies[i_best, j_best], delta_energies
-    def search_cluster_centers(self, percents = 10.0, metric = 'euclidean', n_stds_delta = None, ns_clusters = None, manual_refine = False, pdf = None, **kwargs):
+            return radii[i_best], ns_clusters[j_best], delta_energies[i_best, j_best], delta_energies
+    def search_cluster_centers(self, radii = 'p1.0', metric = 'euclidean', n_stds_delta = None, ns_clusters = None, manual_refine = False, pdf = None, **kwargs):
         """
         Test parameters and find the cluster centers
         """
         if metric == 'test':
-            metric = self.test_metrics(percents, n_stds_delta, ns_clusters, pdf)
+            metric = self.test_metrics(radii, n_stds_delta, ns_clusters, pdf)
             print('Proceeding with metric {0:s}'.format(metric))
         self.dist = self.distance_matrix(metric)
-        percent, n_clusters, delta_energy, delta_energies = self.test_percents_clusters(percents, n_stds_delta, ns_clusters, pdf)
+        radius, n_clusters, delta_energy, delta_energies = self.test_radii_clusters(radii, n_stds_delta, ns_clusters, pdf)
         if self.verbose > 0:
-            print('Clustering with the Distance-Peaks algorithm, with percent {0:f}'.format(percent))
-        self.get_energy(percent, n_stds_delta, n_clusters, pdf)
+            print('Clustering with the Distance-Peaks algorithm, with kernel radius: ',radius)
+        self.get_energy(radius, n_stds_delta, n_clusters, pdf)
         #--- Manual refine clusters
         if manual_refine:
             rho_norm = (self.rho - np.min(self.rho)) / (np.max(self.rho) - np.min(self.rho))
@@ -1687,61 +1642,20 @@ def read_data(file_name, read_labels = False):
         else:
             return [np.array(table),]
 
-def run(mode, trajs, **kwargs):
-    """
-    Parameters
-    ----------
-    mode: str
-    """
-    labels = kwargs.pop('labels',[])
-    if mode == 'Kmeans':
-        C = Kmeans(trajs, labels)
-    elif mode == 'DensityPeaks':
-        C = DensityPeaks(trajs, labels)
-        C.search_cluster_centers(**kwargs)
-    elif mode == 'MeanShift':
-        C = MeanShift(trajs, labels)
-    else:
-        raise ValueError('ERROR: mode {0:s} is not implemented'.format(mode))
-    C.fit_predict(**kwargs)
-    return C
-
 if __name__ == '__main__':
     print('------------------')
     print('Testing cluster.py')
     print('------------------')
-    np.set_printoptions(precision = np.inf)
-
-    #mp.dps = 10
-    #print(type(erf(4.0)))
-    ##print(0.5*(1.0 - erf( (x) / (np.sqrt(2)) ) ))
-    ##print(type(sperf(x)))
-    ##print('{0:.100f}'.format(sperf(x)))
-    ##exit()
-
-    #from scipy.special import erf
-    ##from mpmath import *
-    #mp.dps = 10
-    #print(type(erf(4.0)))
-    #exit()
 
     pdf = PdfPages('./test.pdf')
 
-    #X, y = make_data('blobs', 1000)
-    #X, y = read_data('../examples/data/cluster/aggregation.txt', True)
     X, y = make_data('gates', 1000, 100)
 
-    #C = run('Kmeans', trajs = X, labels = y, n_clusters = 4, pdf = pdf)
-    #C = run('MeanShift', trajs = X, labels = y, bandwidth = 0.6, pdf = pdf)
-    C = run('DensityPeaks', trajs = X, labels = y, ns_clusters = 6, pdf = pdf)
-    #C = run('DensityPeaks', trajs = X, labels = y, n_clusters = None, percents = [0.1,1.0,10.0], n_stds_delta = 3.0, metric = 'euclidean', halo = 0.0, manual_refine = True, pdf = pdf)
-    #        , percents = [0.1,0.2,0.5,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0], n_stds_delta = None, metric = 'euclidean', halo = 0.0, manual_refine = True, pdf = pdf)
+    C = DensityPeaks(trajs = X, labels = y, verbose = 2)
+    C.search_cluster_centers(ns_clusters = np.arange(2,10,1), radii  = 'p0.5', pdf = pdf)
+    C.fit_predict()
 
-    #C = TrainingKNN(trajs = X, labels = y)
-    #C.fit_predict(percent = 10.0, n_clusters = 4, training_samples = 10000, n_rounds = 100, min_n_samples_robust = 3, n_samples_per_cluster = 50, n_neighbors = 3, pdf = pdf)
-    
-    
-    #C.score()
+    C.score()
     C.show(pdf)
     print(C)
 

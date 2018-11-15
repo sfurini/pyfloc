@@ -184,6 +184,10 @@ class PyFloc(object):
         elif mode == 'DPKNN':
             self.cluster = cluster.TrainingKNN(trajs = [data_norm,], labels = labels, verbose = verbose)
             self.cluster.fit(kwargs['ns_clusters'], percent = kwargs.get('percents',10.0), training_samples = kwargs.get('training_samples',10000), n_rounds = kwargs.get('n_rounds',100), pdf = pdf)
+        elif mode == 'Unique':
+            data_norm = data_norm.astype('int')
+            self.cluster = cluster.Unique(trajs = [data_norm,], labels = labels, verbose = verbose)
+            self.cluster.fit()
         elif mode == 'Kmeans':
             self.cluster = cluster.Kmeans(trajs = [data_norm,], labels = labels, verbose = verbose)
             self.cluster.fit(kwargs['ns_clusters'], pdf = pdf)
@@ -207,6 +211,7 @@ class PyFloc(object):
             print(self.cluster)
         self.experiments.labels = self.cluster.dtrajs[0]
         if verbose > 1:
+            self.experiments.show_distributions(features = self.features_last_clustering, pdf = pdf)
             pdf.close()
     def draw_gate(self, target, mode = 'cherry', clusters_2_keep = [], verbose = None):
         #--- Use default verbosity if not defined

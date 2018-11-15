@@ -26,7 +26,7 @@ class LogicleScale(object):
         self.calculate_p_W()
         self.calculate_y()
     def calculate_T_M_A_r(self, percentile = 5.0):
-        if np.sum(self.S < 0) >0:
+        if np.sum(self.S < 0) > 0:
             self.r = 1.0*np.percentile(self.S[self.S < 0], percentile)
         else:
             self.r = -10        
@@ -36,6 +36,9 @@ class LogicleScale(object):
         self.M = np.log10(self.T)
     def calculate_p_W(self):
         self.W = (self.M - np.log10(self.T/abs(self.r)))/2.0 
+        while self.W < 0:
+            self.M += 1
+            self.W = (self.M - np.log10(self.T/abs(self.r)))/2.0 
         W_prov = 0
         p_prov = 0.51
         while W_prov < self.W:
@@ -43,6 +46,12 @@ class LogicleScale(object):
             W_prov = 2*p_prov*np.log10(p_prov)/(p_prov+1)
         P = np.linspace(p_prov-1, p_prov+1, num=1000)
         W1 = 2*P*np.log10(P)/(P+1)
+        #print('M: ',self.M)
+        #print('T: ',self.T)
+        #print('r: ',self.r)
+        #print('self.W: ',self.W)
+        #print('W1: [',np.min(W1),':',np.max(W1),']')
+        #print('P: [',np.min(P),':',np.max(P),']')
         p_interp = interp1d(W1,P)
         self.p = float(p_interp(self.W))
     def calculate_y(self, T = None, M = None, A = None, p = None, W = None):

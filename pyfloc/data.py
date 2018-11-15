@@ -40,7 +40,7 @@ class Collection(object):
         self.conditions = []
         self.experiments = []
         self.normalize_parameters = {}
-        self_transform_mode = ''
+        self.transform_mode = {}
         self.labels = np.empty(0)
         self.fis = None
     def add_experiment(self, experiment, condition, labels = None):
@@ -195,6 +195,10 @@ class Collection(object):
         for i_experiment, experiment in enumerate(self.experiments):
             print('Running compensation for experiment {0:d}'.format(i_experiment))
             experiment.compensate()
+    def stretch(self, features, thrs):
+        for feature in features:
+            for i_experiment, experiment in enumerate(self.experiments):
+                experiment.stretch(feature, thrs)
     def normalize(self, features, verbose = 0, **kwargs):
         """
         Parameters
@@ -207,8 +211,7 @@ class Collection(object):
         print('Running feature normalization with mode {0:s}'.format(kwargs['mode']))
         for feature in features:
             if kwargs['mode'] == 'min':
-                min_feature = self.get_min_feature(feature)
-                self.normalize_parameters[feature] = min_feature
+                self.normalize_parameters[feature] = self.get_min_feature(feature)
             elif kwargs['mode'] == 'min_max':
                 min_feature = self.get_min_feature(feature)
                 max_feature = self.get_max_feature(feature)
@@ -217,22 +220,32 @@ class Collection(object):
                 mean_feature = self.get_mean_feature(feature)
                 std_feature = self.get_std_feature(feature)
                 self.normalize_parameters[feature] = [mean_feature, std_feature]
+            elif kwargs['mode'] == 'log10':
+                self.normalize_parameters[feature] = self.get_min_feature(feature)
+            elif kwargs['mode'] == 'sqrt':
+                self.normalize_parameters[feature] = self.get_min_feature(feature)
             elif kwargs['mode'] == 'arcsinh':
                 self.normalize_parameters[feature] = [kwargs.get('bias',0.0), kwargs.get('factor',5.0)]
                 if self.normalize_parameters[feature][0] == 'min':
                     min_feature = self.get_min_feature(feature)
                     self.normalize_parameters[feature][0] = min_feature
+            elif kwargs['mode'] == 'sigmoid':
+                self.normalize_parameters[feature] = [kwargs.get('bias',0.0),kwargs.get('factor',1.0)]
+            elif kwargs['mode'] == 'binary':
+                self.normalize_parameters[feature] = [kwargs['threshold'],]
             elif kwargs['mode'] == 'logicle':
                 data_feature = self.get_data_features([feature])
                 L = logicleScale.LogicleScale(data_feature)
                 L.calculate_T_M_A_r()
                 L.calculate_p_W()
                 self.normalize_parameters[feature] = [L.T, L.M, L.A, L.p, L.W] 
+            else:
+                raise ValueError('ERROR: '+kwargs['mode']+' is not a normalization mode')
             for i_experiment, experiment in enumerate(self.experiments):
                 if (verbose > 0):
                     print('Running normalization for feature {0:s} in experiment {1:d} with mode {2:s}'.format(feature, i_experiment,kwargs.get('mode','min')))
                 experiment.normalize(feature, self.normalize_parameters, **kwargs)
-        self.transform_mode = kwargs['mode']    
+            self.transform_mode[feature] = kwargs['mode']    
     def transform(self, feature, data):
         """
         Parameters
@@ -242,9 +255,18 @@ class Collection(object):
         data: np.ndarray
             One dimensional array with data along that feature
         """
-        if self.transform_mode == 'arcsinh':
+        if self.transform_mode[feature] == 'arcsinh':
             return np.arcsinh((data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1])
-        elif self.transform_mode == 'logicle':
+        elif self.transform_mode[feature] == 'log10':
+            dummy = (data - self.normalize_parameters[feature])
+            return np.log10(dummy + 1.0)
+        elif self.transform_mode[feature] == 'sqrt':
+            dummy = data - self.normalize_parameters[feature]
+            return np.sqrt(dummy)
+        elif self.transform_mode[feature] == 'sigmoid':
+            dummy = (data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1]
+            return 1.0 / ( 1.0 + np.exp(-dummy) )
+        elif self.transform_mode[feature] == 'logicle':
             L = logicleScale.LogicleScale(data)
             L.calculate_y(
                     T = self.normalize_parameters[feature][0],
@@ -254,7 +276,7 @@ class Collection(object):
                     W = self.normalize_parameters[feature][4])
             return L.y
         else:
-            raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.transform_mode))
+            raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.transform_mode[feature]))
     def back_transform(self, feature, data):
         """
         Parameters
@@ -264,20 +286,32 @@ class Collection(object):
         data: np.ndarray
             One dimensional array with data along that feature
         """
-        if self.transform_mode == 'arcsinh':
+        if self.transform_mode[feature] == 'arcsinh':
             return self.normalize_parameters[feature][1]*np.sinh(data)
-        elif self.transform_mode == 'logicle':
+        elif self.transform_mode[feature] == 'log10':
+            dummy = np.power(10.0, data)
+            return dummy - 1.0 + self.normalize_parameters[feature] 
+        elif self.transform_mode[feature] == 'sqrt':
+            dummy = np.power(data,2.0)
+            return dummy + self.normalize_parameters[feature]
+        elif self.transform_mode[feature] == 'sigmoid':
+            dummy = np.log(np.array(data) / (1.0 - np.array(data)))
+            return dummy*self.normalize_parameters[feature][1] + self.normalize_parameters[feature][0]
+        elif self.transform_mode[feature] == 'logicle':
+            if not isinstance(data, np.ndarray):
+                data = np.array([data,])
+            data = data.flatten()
             L = logicleScale.LogicleScale(data)
             original_data = L.calculate_S(
-                    y = self.get_data_norm_features([feature]),  
+                    y = data,  
                     T = self.normalize_parameters[feature][0],
                     M = self.normalize_parameters[feature][1],
                     A = self.normalize_parameters[feature][2],
                     p = self.normalize_parameters[feature][3],
                     W = self.normalize_parameters[feature][4])
-            return [np.min(original_data), np.max(original_data)]
+            return original_data
         else:
-            raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.transform_mode))
+            raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.transform_mode[feature]))
     def delete_samples(self, inds, verbose = 0):
         """
         Parameters
@@ -371,6 +405,48 @@ class Collection(object):
                 print('Removing {0:d} outliers for feature {1:s}'.format(len(inds_delete),feature))
             self.delete_samples(inds_delete)
         print('Number of samples after outliers removal {0:d}'.format(self.get_n_samples()))
+    def show_histogram(self, pdf, list_features = [], nbins = 100):
+        if not list_features:
+            list_features = self.get_features()
+        for feature in list_features:
+            data = self.get_data_features([feature,])
+            data_norm = self.get_data_norm_features([feature,])
+            has_norm = not np.prod(np.isnan(data_norm))
+            f = plt.figure()
+            if has_norm:
+                ax1 = f.add_subplot(211)
+                ax2 = f.add_subplot(212)
+            else:
+                ax1 = f.add_subplot(111)
+            h, e = np.histogram(data, bins = nbins, normed = True)
+            b = 0.5*(e[:-1] + e[1:])
+            ax1.plot(b,h,'-')
+            if has_norm:
+                h, e = np.histogram(data_norm, bins = nbins, normed = True)
+                b = 0.5*(e[:-1] + e[1:])
+                ax2.plot(b,h,'-')
+                ##--- change labels to actual values / x-axis
+                #possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
+                #possible_ticklabels = ['-10^3','-10^2','-10^-1','0','10^1','10^2','10^3','','','','','','','','','10^4','','','','','','','','','10^5','','','','','','','','']
+                #x_norm_min, x_norm_max = ax2.get_xlim()
+                #x_min, x_max = self.back_transform(feature, [x_norm_min, x_norm_max])
+                #x_ticks = []
+                #x_ticklabels = []
+                #for ind, x_tick in enumerate(possible_ticks):
+                #    if (x_tick > x_min) and (x_tick < x_max):
+                #        x_ticks.append(x_tick)
+                #        x_ticklabels.append(possible_ticklabels[ind])
+                #x_ticks = np.array(x_ticks)
+                #x_ticks_norm = self.transform(feature, x_ticks)
+                #ax2.set_xticks(x_ticks_norm)
+                #ax2.set_xticklabels(x_ticklabels)
+            plt.sca(ax1)
+            plt.title(feature)
+            plt.sca(ax2)
+            pdf.savefig()
+            plt.yscale('log')
+            pdf.savefig()
+            plt.close()
     def show_scatter(self, features, features_synonym = {}, stride = 0, contour = None, mode = 'experiments', inds_inside = None, pdf = None):
         """
         Scatter plots of samples. It works only with 2 features
@@ -578,6 +654,8 @@ class Collection(object):
     def show_distributions(self, features, features_synonym = {}, clusters_order = None, pdf = None):
         """
         """
+        if isinstance(self.labels, np.ndarray):
+            self.labels = list(self.labels.flatten())
         if len(set(self.labels)) == 1:
             print('WARNING: no distribution to plot if labels are not defined')
             return
@@ -702,7 +780,9 @@ class Collection(object):
         possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
         possible_ticklabels = ['-10^3','-10^2','-10^-1','0','10^1','10^2','10^3','','','','','','','','','10^4','','','','','','','','','10^5','','','','','','','','']
         c_norm_min, c_norm_max = cax.get_clim()
-        c_min, c_max = self.back_transform(features[0], [c_norm_min, c_norm_max])
+        c_min_max = self.back_transform(features[0], [c_norm_min, c_norm_max])
+        c_min = c_min_max[0]
+        c_max = c_min_max[1]
         c_ticks = []
         c_ticklabels = []
         for ind, c_tick in enumerate(possible_ticks):
@@ -876,6 +956,24 @@ class Experiment(object):
     def compensate(self):
         ind_features, compensate_matrix = self.get_compensation()
         self.data[:,ind_features] = np.dot(self.data[:,ind_features],np.linalg.inv(compensate_matrix))
+    def stretch(self, feature, thrs, alpha = 0.5, n = 2.0):
+        ind_features = self.get_index_features([feature])
+        data_norm = self.data_norm[:,ind_features]
+        data_norm_stretched = np.zeros(data_norm.shape)
+
+        inds = data_norm < thrs['peak_low']
+        data_norm_stretched[inds] = - alpha * ( (data_norm[inds] - thrs['peak_low']) / (thrs['min'] - thrs['peak_low']) )**n
+
+        inds = data_norm >= thrs['peak_high']
+        data_norm_stretched[inds] = 1 + alpha * ( (data_norm[inds] - thrs['peak_high']) / (thrs['max'] - thrs['peak_high']) )**n
+
+        inds = (data_norm >= thrs['peak_low']) & (data_norm < thrs['threshold'])
+        data_norm_stretched[inds] = alpha * ( (data_norm[inds] - thrs['peak_low']) / (thrs['threshold'] - thrs['peak_low']) )**n
+
+        inds = (data_norm >= thrs['threshold']) & (data_norm < thrs['peak_high'])
+        data_norm_stretched[inds] = 1 - alpha * ( (data_norm[inds] - thrs['peak_high']) / (thrs['threshold'] - thrs['peak_high']) )**n
+
+        self.data_norm[:,ind_features] = data_norm_stretched
     def normalize(self, feature, norm_parameters, **kwargs):
         """
         Parameters
@@ -897,6 +995,15 @@ class Experiment(object):
         elif kwargs['mode'] == 'arcsinh':
             dummy = (self.data[:,ind_features] - norm_parameters[feature][0])
             self.data_norm[:,ind_features] = np.arcsinh( dummy /  norm_parameters[feature][1])
+        elif kwargs['mode'] == 'log10':
+            self.data_norm[:,ind_features] = np.log10((self.data[:,ind_features] - norm_parameters[feature]) + 1.0)
+        elif kwargs['mode'] == 'sqrt':
+            self.data_norm[:,ind_features] = np.sqrt((self.data[:,ind_features] - norm_parameters[feature]))
+        elif kwargs['mode'] == 'sigmoid':
+            dummy = (self.data[:,ind_features] - norm_parameters[feature][0]) / norm_parameters[feature][1]
+            self.data_norm[:,ind_features] = 1.0 / ( 1.0 + np.exp(-dummy) )
+        elif kwargs['mode'] == 'binary':
+            self.data_norm[:,ind_features] = (self.data[:,ind_features] > norm_parameters[feature][0])
         elif kwargs['mode'] == 'logicle':
             L = logicleScale.LogicleScale(self.data[:,ind_features])
             self.data_norm[:,ind_features] = L.calculate_y(
