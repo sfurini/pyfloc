@@ -250,7 +250,7 @@ class PyFloc(object):
         #restituisce tutti gli indici delle cellule che hanno quelle caratteristiche
         #es per cd11b monocyte: cd33+, cd3-, cd4-, cd8-, cd19-
         #strategy = {'CD33':1, 'CD3':0, 'CD4':0, 'CD8':0 , 'CD19':0}
-    ## MM fine
+    ### MM fine 
     def draw_gate(self, target, mode = 'cherry', clusters_2_keep = [], verbose = None):
         #--- Use default verbosity if not defined
         if verbose is None:
