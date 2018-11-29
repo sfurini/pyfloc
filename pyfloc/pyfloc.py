@@ -131,6 +131,12 @@ class PyFloc(object):
                                 print('Running a clustering step for features {0:s}'.format(','.join(features)))
                                 self.fit_cluster(mode, features, **parameters)
                                 self.predict_cluster(**parameters)
+                                ### MM
+                                #print("******************************************LIST_FEATURES: ", self.experiments.get_features())
+                                #exit()
+                                #self.order_labels([self.experiments.get_features()[0], self.experiments.get_features()[1]]) #le prime due features, scegli quelle che vuoi
+                                #self.save_clustering()
+                                ###
                                 self.counter += 1
                             else:   #--- Everything else is considered a definition of feature synonyms
                                 self.features_synonym[key] = values
@@ -213,6 +219,38 @@ class PyFloc(object):
         if verbose > 1:
             self.experiments.show_distributions(features = self.features_last_clustering, pdf = pdf)
             pdf.close()
+    ### MM inizio
+    def save_clustering(self,feature):
+        #--- adds a column in format "labels_[feature]"
+        self.experiments.add_column_labels(feature) 
+    def order_labels(self): #ordina dal picco piu' basso al piu' alto dell'ultimo clustering monodimensionale
+        #-- orders peaks in ascending order and modifies labels so that 0 correspond to the minimum density peak and n correspond to the maximum
+        new_labels = []
+        cluster_analogic_sorted_temp = np.sort(np.array(self.cluster.clusters_analogic).flatten())
+        cluster_analogic_sorted = deepcopy(self.cluster.clusters_analogic)
+        cluster_analogic_sorted[0][0]=cluster_analogic_sorted_temp.min() 
+        cluster_analogic_sorted[1][0]=cluster_analogic_sorted_temp.max()
+        for i_cluster, cluster in enumerate(cluster_analogic_sorted):
+            i_cluster_analogic = np.where(self.cluster.clusters_analogic == cluster)[0][0]
+            new_labels.append(i_cluster_analogic)
+        self.experiments.labels = np.array(self.experiments.labels)
+        labels_temp = deepcopy(self.experiments.labels)
+        for i_label in range(len(new_labels)):
+            i_labels_temp = np.where(labels_temp == i_label)[0]
+            self.experiments.labels[i_labels_temp] = new_labels[i_label]
+        self.experiments.labels = list(self.experiments.labels) 
+    def combine_clustering(self,feature0,feature1):
+        #-- returns a dictionary which contains the indexes of the combinations of density peaks
+        # i.e (0,0):[1,2,3,4] means that 1,2,3,4 are the indexes of the elements which have the lowest peak in feature0 and feature1
+        return self.experiments.combine_clustering(feature0,feature1)
+    def combine_all_clustering(self, dict_features):
+        return self.experiments.combine_all_clustering(dict_features)
+        #input: che cosa vuoi: es {'cd3' : 0 (basso) o 1 (alto), 'cd4': 0, ...}
+        #solo su variabili binarizzabili
+        #restituisce tutti gli indici delle cellule che hanno quelle caratteristiche
+        #es per cd11b monocyte: cd33+, cd3-, cd4-, cd8-, cd19-
+        #strategy = {'CD33':1, 'CD3':0, 'CD4':0, 'CD8':0 , 'CD19':0}
+    ## MM fine
     def draw_gate(self, target, mode = 'cherry', clusters_2_keep = [], verbose = None):
         #--- Use default verbosity if not defined
         if verbose is None:
