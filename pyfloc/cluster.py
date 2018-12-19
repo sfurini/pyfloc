@@ -144,7 +144,7 @@ class Cluster(object):
         labels = set()
         for labels_traj in self.labels:
             for label in labels_traj:
-                if label > 0:
+                if label >= 0: #MM
                     labels.add(label)
         return labels
     def n_labels(self):

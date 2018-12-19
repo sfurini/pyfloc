@@ -13,14 +13,12 @@ from copy import deepcopy
 from scipy.signal import argrelextrema
 
 
-pdf = PdfPages('levine_13dim.pdf')
+pdf = PdfPages('levine_13dim_bin_all_possible_strategies.pdf')
 B = pyfloc.PyFloc(verbose = 2, prefix = 'levine_13dim')
-B.read_fcs(file_name = './data/flowc/levine_13dim.fcs', mode = 50000)
+B.read_fcs(file_name = './data/flowc/levine_13dim.fcs', mode = 'all')
 list_features= ['CD34','CD123','CD19','CD33','CD20','CD38','CD11b','CD4','CD8','CD90','CD45RA','CD45','CD3']
-#list_features= ['CD19','CD33','CD11b','CD4','CD8','CD45RA','CD45','CD3']
-#list_features= ['CD19', 'CD3']
 B.clean_samples(features = ['label',], mode = 'nan')
-B.experiments.remove_outliers(list_features, 6.0)
+#B.experiments.remove_outliers(list_features, 6.0)
 
 #B.normalize(features = list_features, mode = 'arcsinh', factor = 5, bias = 0.0)
 B.normalize(features = list_features, mode = 'logicle')
@@ -68,9 +66,11 @@ radius = 0.25
 print('*******List features*********: ',list_features_binary)
 
 print('\n')
-#B.fit_cluster(list_features_binary, mode = 'Unique')
-#B.predict_cluster()
 ns_clusters = np.arange(2,50,1)
+
+#energies = B.fit_cluster(list_features_binary, ns_clusters = ns_clusters, radii = radius,  mode = 'DP')
+#B.predict_cluster()
+
 
 for feature_bin in list_features_binary:
     print("Working on feature ", feature_bin)
@@ -79,13 +79,16 @@ for feature_bin in list_features_binary:
     B.order_labels()
     B.save_clustering(feature_bin)
 
+population_target = []
+
 #cd11b monocyte
+population_target.append('monocytes')
 strategy = {'CD33':1, 'CD3':0, 'CD4':0, 'CD8':0 , 'CD19':0} 
 versus = {'CD33':'CD45', 'CD3':'CD45', 'CD4':'CD3', 'CD8':'CD3', 'CD19':'CD45'} 
-#Mature cd4+ T
-#strategy = {'CD33':0, 'CD3':1, 'CD4':1, 'CD8':0, 'CD19':0, 'CD45RA':0}
 
 ### INIZIO PROVA STRATEGIE
+#for i_strategy, strategy in enumerate(all_strategies): 
+#    pop = population_target[i_strategy] 
 s = {}
 for key in list(strategy.keys()):
     s[key] = strategy[key]
@@ -101,7 +104,7 @@ for key in list(strategy.keys()):
 pdf.close()
 #### FINE PROVA STRATEGIE
 
-
+#print("Population: ", pop)
 target_pop = np.zeros(np.shape(B.experiments.labels))
 target_pop[combo[0]] = 1 #negli indici trovati metti la classificazione a 1
 n_clusters = 2
@@ -112,6 +115,7 @@ print(C.cluster)
 exit()
 
 ###
+
 energies = energies.flatten()
 
 

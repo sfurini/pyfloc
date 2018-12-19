@@ -90,7 +90,7 @@ class Collection(object):
         feature_labels = []
         for key in dict_features.keys():
             feature_labels.append(str(key))
-        print (feature_labels)
+        #print (feature_labels)
         combo_experiment = []
         for i_experiment, experiment in enumerate(self.experiments):
             combo = None 
@@ -1132,36 +1132,43 @@ if __name__ == '__main__':
     # Create a collection of experiments
     C = Collection()
     # Read data for 1st experiment
-    E1 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
+    #E1 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
+    E1 = Experiment(file_name = '../examples/data/flowc/levine_13dim.fcs', mode = 'all')
     # Add data to collection
     C.add_experiment(E1, condition = 'random_set_1') #, labels = E1.get_data_features(['label']))
     # Read data for 2nd experiment
-    E2 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
+    #E2 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
     # Add data to collection
-    C.add_experiment(E2, condition = 'random_set_2')
+    #C.add_experiment(E2, condition = 'random_set_2')
     # Choose two features
-    feature_0 = 'CD38'
-    feature_1 = 'CD95'
+    #feature_0 = 'CD38'
+    #feature_1 = 'CD95'
+    features = ['CD34' , 'CD38', 'CD90']
     # Remove nan from all features
     C.clean_samples()
     # Compensate data
-    C.compensate()
+    #C.compensate()
     # Normalize data
     #C.normalize(features = [feature_0, feature_1], mode = 'arcsinh')
-    C.normalize(features = [feature_0, feature_1], mode = 'logicle')
+    #C.normalize(features = [feature_0, feature_1], mode = 'logicle')
+    C.normalize(features = features, mode = 'logicle')
+    C.show_histogram(list_features = features, pdf = pdf)
     # Show experiment E1
-    E1.show(feature_0, feature_1, pdf = pdf)
+    #E1.show(feature_0, feature_1, pdf = pdf)
     # Show all experiments in the collection
-    C.show(feature_0, feature_1, pdf = pdf)
+    #C.show(feature_0, feature_1, pdf = pdf)
     # Show scattered data, colored according to experiment index
-    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'experiments', pdf = pdf)
+    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'experiments', pdf = pdf)
     # Show scattered data, colored according to condition index
-    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'conditions', pdf = pdf)
+    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'conditions', pdf = pdf)
     # Show scattered data, colored according to labels
-    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'labels', pdf = pdf)
+    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'labels', pdf = pdf)
     # Show scattered data, colored according to density
-    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'density', pdf = pdf)
+    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'density', pdf = pdf)
     # Show cluster distribution
     #C.show_distributions([feature_0, feature_1], pdf = pdf)
+    #C.labels = C.get_data_features(['label'])
+    #print(np.shape(C.get_data_features(['label'])))
+    #C.show_distributions(features, pdf = pdf)
 
     pdf.close()
