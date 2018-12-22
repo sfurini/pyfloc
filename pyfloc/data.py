@@ -255,7 +255,13 @@ class Collection(object):
         data: np.ndarray
             One dimensional array with data along that feature
         """
-        if self.transform_mode[feature] == 'arcsinh':
+        if self.transform_mode[feature] == 'min':
+            return data - self.normalize_parameters[feature] + 1.0
+        elif self.transform_mode[feature] == 'min_max':
+            return (data - self.normalize_parameters[feature][0]) / (self.normalize_parameters[feature][1] - self.normalize_parameters[feature][0]) 
+        elif self.transform_mode[feature] == 'mean_std':
+            return (data - self.normalize_parameters[feature][0]) / self.normalize_parameters[feature][1]
+        elif self.transform_mode[feature] == 'arcsinh':
             return np.arcsinh((data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1])
         elif self.transform_mode[feature] == 'log10':
             dummy = (data - self.normalize_parameters[feature])
@@ -286,7 +292,15 @@ class Collection(object):
         data: np.ndarray
             One dimensional array with data along that feature
         """
-        if self.transform_mode[feature] == 'arcsinh':
+        if isinstance(data,list):
+            data = np.array(data)
+        if self.transform_mode[feature] == 'min':
+            return data + self.normalize_parameters[feature] - 1.0
+        elif self.transform_mode[feature] == 'min_max':
+            return data * (self.normalize_parameters[feature][1] - self.normalize_parameters[feature][0]) + self.normalize_parameters[feature][0]
+        elif self.transform_mode[feature] == 'mean_std':
+            return data * self.normalize_parameters[feature][1] + self.normalize_parameters[feature][0]
+        elif self.transform_mode[feature] == 'arcsinh':
             return self.normalize_parameters[feature][1]*np.sinh(data)
         elif self.transform_mode[feature] == 'log10':
             dummy = np.power(10.0, data)
@@ -987,7 +1001,7 @@ class Experiment(object):
         """
         ind_features = self.get_index_features([feature])
         if kwargs['mode'] == 'min':
-            self.data_norm[:,ind_features] = (self.data[:,ind_features] - norm_parameters[feature])
+            self.data_norm[:,ind_features] = (self.data[:,ind_features] - norm_parameters[feature] + 1.0)
         elif kwargs['mode'] == 'min_max':
             self.data_norm[:,ind_features] = (self.data[:,ind_features] - norm_parameters[feature][0]) / (norm_parameters[feature][1] - norm_parameters[feature][0])
         elif kwargs['mode'] == 'mean_std':

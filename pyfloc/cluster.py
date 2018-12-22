@@ -336,7 +336,12 @@ class Cluster(object):
             elif mode == 'chebyshev':
                 dist = np.max(dist_dims, axis = 0)
         elif mode == 'euclidean':
-            dist = pairwise_distances(self.trajs_merged)
+            if self.n_dims() == 1:
+                dist = pairwise_distances(self.trajs_merged.reshape(-1,1))
+            else:
+                dist = pairwise_distances(self.trajs_merged)
+        elif mode == 'logarithmic':
+            dist = np.abs( np.log2(self.trajs_merged.reshape(1,-1)) - np.log2(self.trajs_merged.reshape(-1,1)) )
         elif mode == 'angular':
             scalar = np.dot(self.trajs_merged, self.trajs_merged.transpose())
             teta = (scalar / np.sqrt(scalar.diagonal().reshape(scalar.shape[0],1)) / np.sqrt(scalar.diagonal().reshape(1,scalar.shape[0])))
@@ -453,17 +458,19 @@ class Cluster(object):
                 plt.close(f)
         else:
             raise ValueError('ERROR: not implemented for {0:d} dimensions'.format(self.n_dims()))
-    def show(self, pdf = None, plot_trajs = False, plot_maps = True, plot_labels = False, stride = 0):
+    def show(self, pdf = None, plot_trajs = False, plot_hists = False, plot_maps = True, plot_labels = False, stride = 0):
         """
         plot_trajs: bool
             Show plots of single trajectories in analogical and digital form
+        plot_hists: bool
+            Show histogram plots in 1D spaces
         plot_maps:  bool
             Show samples in 2D spaces 
         plot_labels:    bool
             Show distributions of parameters over labels
         """
         #plt.rcParams['image.cmap'] = 'Paired'
-        if (not plot_trajs) and (self.n_dims() == 1):
+        if  (not plot_trajs) and (not plot_hists) and (self.n_dims() == 1):
             print('WARNING: nothing to do for 1D data if plot_traj is False')
             return
         if plot_labels and (self.labels is None):
@@ -486,6 +493,25 @@ class Cluster(object):
                     ax.plot(traj[:,i_dim],'-b', label = 'original trajectory')
                     if dtraj_analogic is not None:
                         ax.plot(dtraj_analogic[:,i_dim],'-r',label = 'analogical conversion')
+                plt.legend()
+                if pdf is not None:
+                    pdf.savefig()
+                    plt.close(f)
+        if plot_hists:
+            for i_traj, traj in enumerate(self.trajs):
+                traj = self.trajs[i_traj]
+                f = plt.figure()
+                for i_dim in range(self.n_dims()):
+                    ax = f.add_subplot(self.n_dims(),1,i_dim+1)
+                    if i_dim == 0:
+                        plt.title('Trajectory '+str(i_traj))
+                    h,e = np.histogram(traj, bins = 100)
+                    b = 0.5*(e[1:] + e[:-1])
+                    ax.plot(b,h,'-b', label = None)
+                    if self.clusters_analogic.size > 0:
+                        for i_cluster in range(self.n_clusters()):
+                            ib = np.argmin(np.abs(b -self.clusters_analogic[i_cluster])) 
+                            ax.plot(self.clusters_analogic[i_cluster], h[ib], 'o', label = 'cluster {0:d}'.format(i_cluster))
                 plt.legend()
                 if pdf is not None:
                     pdf.savefig()
@@ -995,6 +1021,17 @@ class DensityPeaks(ClusterSKlearn):
             plt.ylabel('delta_norm_log')
             pdf.savefig()
             plt.close()
+            if self.n_dims() == 1:
+                f = plt.figure()
+                ax1 = f.add_subplot(211)
+                ax1.plot(self.trajs_merged, rho_norm_log,'.')
+                plt.ylabel('rho_norm_log')
+                ax1 = f.add_subplot(212)
+                ax1.plot(self.trajs_merged, delta_norm_log,'.')
+                plt.xlabel('Feature')
+                plt.ylabel('delta_norm_log')
+                pdf.savefig()
+                plt.close()
         energies.sort()
         if isinstance(ns_clusters,int) or isinstance(ns_clusters,np.int64) : # if a number of clusters was chosen, return the ones in lowest probability regions
             self.ind_cluster_centers = np.argsort(probs_gmm)[0:ns_clusters]
@@ -1015,7 +1052,7 @@ class DensityPeaks(ClusterSKlearn):
         For parameter definition see DensityPeaks.fit
         """
         delta_energy_best = -np.inf
-        for metric in ['euclidean', 'manhattan', 'chebyshev', 'angular']:
+        for metric in ['euclidean', 'manhattan', 'chebyshev', 'angular', 'logarithmic']:
             self.dist = self.distance_matrix(metric)
             radius, n_cluster, delta_energy, dummy = self.test_radii_clusters(radii, n_stds_delta, ns_clusters, pdf)
             print('Best energy for metric {0:s} {1:f}'.format(metric, delta_energy))
@@ -1614,6 +1651,13 @@ def make_data(kind, n_samples = 1000, n_samples_rare = 10):
         #x = np.hstack((np.random.uniform(low = 0.50, high = 1.0, size = (n_samples_rare,1)),np.random.uniform(low = 0.0, high = 1.0, size = (n_samples_rare,1))))
         #X = np.vstack((X,x))
         #y = np.hstack((y, 2*np.ones(n_samples_rare)))
+    elif kind == '1d_gate':
+        X = -1.5+0.1*np.random.randn(n_samples)
+        X = np.hstack((X, 1.0 + 0.1*np.random.randn(n_samples_rare)))
+        X = np.hstack((X, np.random.uniform(low = -2.0, high = 2.0, size = n_samples)))
+        X = X.reshape(-1,1)
+        y = np.zeros(len(X))
+        X -= np.min(X) - 1
     else:
         raise ValueError('ERROR: {0:s} kind does not exist'.format(kind))
     return [X,], [y,]
@@ -1649,14 +1693,14 @@ if __name__ == '__main__':
 
     pdf = PdfPages('./test.pdf')
 
-    X, y = make_data('gates', 1000, 100)
+    X, y = make_data('1d_gate', 10000, 1)
 
     C = DensityPeaks(trajs = X, labels = y, verbose = 2)
-    C.search_cluster_centers(ns_clusters = np.arange(2,10,1), radii  = 'p0.5', pdf = pdf)
+    C.search_cluster_centers(ns_clusters = np.arange(2,10,1), radii  = 0.5, metric = 'logarithmic', pdf = pdf)
     C.fit_predict()
 
-    C.score()
-    C.show(pdf)
-    print(C)
+    #C.score()
+    C.show(pdf, plot_hists = True)
+    #print(C)
 
     pdf.close()

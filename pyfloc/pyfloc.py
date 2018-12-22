@@ -207,7 +207,7 @@ class PyFloc(object):
             pdf = None
         self.cluster.fit_predict(pdf = pdf, **kwargs)
         if verbose > 0:
-            self.cluster.show(pdf, plot_maps = (len(self.features_last_clustering) == 2))
+            self.cluster.show(pdf, plot_maps = (len(self.features_last_clustering) == 2), plot_hists = (len(self.features_last_clustering) == 1))
             print(self.cluster)
         self.experiments.labels = self.cluster.dtrajs[0]
         if verbose > 1:
