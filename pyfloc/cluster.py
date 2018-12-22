@@ -144,7 +144,7 @@ class Cluster(object):
         labels = set()
         for labels_traj in self.labels:
             for label in labels_traj:
-                if label > 0:
+                if label >= 0: #MM
                     labels.add(label)
         return labels
     def n_labels(self):
@@ -350,12 +350,15 @@ class Cluster(object):
         else:
             raise NotImplementedError('Method {0:s} does not exist'.format(mode))
         return dist
-    def score(self):
+    def score(self, m_dtrajs = None, n_clusters = None ):
         """
         Calculate the score of the clustering algorithm by comparing the clustering results with reference labels
         """
-        n_clusters = self.n_clusters()
-        n_labels = self.n_labels()
+        if n_clusters is None:# MM
+            n_clusters = self.n_clusters()
+        if m_dtrajs is None:
+            m_dtrajs = self.dtrajs
+        n_labels = self.n_labels() 
         precision_matrix = np.zeros((n_clusters, n_labels))
         count_matrix = np.zeros((n_clusters, n_labels))
         recall_matrix = np.zeros((n_clusters, n_labels))
@@ -364,7 +367,8 @@ class Cluster(object):
                 detected = 0
                 true = 0
                 true_positive = 0
-                for i_traj, dtraj in enumerate(self.dtrajs):
+                #for i_traj, dtraj in enumerate(self.dtrajs): MM
+                for i_traj, dtraj in enumerate(m_dtrajs):
                     labels = self.labels[i_traj]
                     dtraj_classified = dtraj[labels >= 0]
                     labels_classified = labels[labels >= 0]

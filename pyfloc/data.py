@@ -62,6 +62,49 @@ class Collection(object):
                 raise ValueError('ERROR: number of labels different from number of samples')
             labels[np.isnan(labels)] = -1
             self.labels = np.hstack((self.labels, labels.flatten())).astype(int)
+    ### MM
+    def add_column_labels(self, feature): 
+        for i_experiment, experiment in enumerate(self.experiments):
+            feature_label = "labels_"+str(feature)
+            i_start, i_end = self.get_boundaries(i_experiment)
+            all_indexes = np.arange(i_start, i_end)
+            indexes_experiment = self.get_indexes_experiment(all_indexes,i_experiment)
+            experiment.add_column(feature_label, np.array(self.labels)[indexes_experiment])
+
+    def combine_clustering(self, feature0, feature1):
+        feature_labels_0 = "labels_"+str(feature0)
+        feature_labels_1 = "labels_"+str(feature1)
+        combo_experiment = []
+        combo = {}
+        for i_experiment, experiment in enumerate(self.experiments):
+            data0 = experiment.get_data_features(feature_labels_0)
+            data1 = experiment.get_data_features(feature_labels_1)
+            # ritorna il numero di label in comune. Es (0,0): [2,3,5,6] significa che le labels [2,3,5,6] sono basse sia nella feature 0 che nella feature 1
+            for i_cluster_0 in np.unique(data0):
+                for i_cluster_1 in np.unique(data1): 
+                    combo[(i_cluster_0,i_cluster_1)] = np.unique(np.array(list((set(np.where(data0 == i_cluster_0)[0]).intersection(np.where(data1==i_cluster_1)[0])))))
+            combo_experiment.append(combo)
+        return combo
+ 
+    def combine_all_clustering(self, dict_features):
+        feature_labels = []
+        for key in dict_features.keys():
+            feature_labels.append(str(key))
+        #print (feature_labels)
+        combo_experiment = []
+        for i_experiment, experiment in enumerate(self.experiments):
+            combo = None 
+            for feature_label in feature_labels:
+                data = experiment.get_data_features("labels_"+feature_label).flatten()
+                i_cluster = np.where(data == dict_features[feature_label])[0]
+                if combo is not None:
+                    combo = np.unique(np.array(list(set(i_cluster).intersection(combo))))
+                else:
+                    combo = i_cluster
+            combo_experiment.append(combo)    
+        return combo_experiment
+ 
+
     def get_conditions(self):
         set_conditions = set(self.conditions)
         # BEGIN: SOLUZIONE TEMPORANEA
@@ -887,6 +930,16 @@ class Experiment(object):
         self.data_norm = np.nan*np.ones(np.shape(self.data))
         self.fis = []
         print('Read {0:d} samples from {1:s}'.format(self.get_n_samples(), file_name))
+        self.set_features()
+        self.set_features_synonym()
+    ### MM
+    def add_column(self, feature, column):
+        if feature not in self.features:
+            self.data = np.hstack((self.data, np.reshape(column,(self.data.shape[0],1))))
+            self.features.append(feature)
+        else: #se c'era di gia' sovrascrive 
+            self.data[self.get_index_features(feature)] = np.reshape(column,(self.data.shape[0],1))
+    ###
     def randomize(self):
         """
         """
@@ -934,15 +987,19 @@ class Experiment(object):
                 print(feature)
                 raise ValueError('Feature {0:s} does not exist'.format(feature))
         return ind_features
-    def get_features(self):
+    def set_features(self):
         """
         Return
         ------
         list
             Name of the features
         """
-        return list(self.sample.data.columns)
+        self.features = list(self.sample.data.columns)
     def get_features_synonym(self):
+        return self.features_synonym
+    def get_features(self):
+        return self.features
+    def set_features_synonym(self):
         features = deepcopy(self.get_features())
         for key, value in self.sample.meta.items():
             if len(key) > 2:
@@ -950,7 +1007,7 @@ class Experiment(object):
                     index = int(key[2:-1])-1
                     #print(key,' = ',value,' = ',index,' = ',features[index])
                     features[index] = value
-        return features
+        self.features_synonym = features
     def get_compensation(self):
         try:
             spill_str = self.sample.meta['SPILL']
@@ -1089,36 +1146,43 @@ if __name__ == '__main__':
     # Create a collection of experiments
     C = Collection()
     # Read data for 1st experiment
-    E1 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
+    #E1 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
+    E1 = Experiment(file_name = '../examples/data/flowc/levine_13dim.fcs', mode = 'all')
     # Add data to collection
     C.add_experiment(E1, condition = 'random_set_1') #, labels = E1.get_data_features(['label']))
     # Read data for 2nd experiment
-    E2 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
+    #E2 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
     # Add data to collection
-    C.add_experiment(E2, condition = 'random_set_2')
+    #C.add_experiment(E2, condition = 'random_set_2')
     # Choose two features
-    feature_0 = 'CD38'
-    feature_1 = 'CD95'
+    #feature_0 = 'CD38'
+    #feature_1 = 'CD95'
+    features = ['CD34' , 'CD38', 'CD90']
     # Remove nan from all features
     C.clean_samples()
     # Compensate data
-    C.compensate()
+    #C.compensate()
     # Normalize data
     #C.normalize(features = [feature_0, feature_1], mode = 'arcsinh')
-    C.normalize(features = [feature_0, feature_1], mode = 'logicle')
+    #C.normalize(features = [feature_0, feature_1], mode = 'logicle')
+    C.normalize(features = features, mode = 'logicle')
+    C.show_histogram(list_features = features, pdf = pdf)
     # Show experiment E1
-    E1.show(feature_0, feature_1, pdf = pdf)
+    #E1.show(feature_0, feature_1, pdf = pdf)
     # Show all experiments in the collection
-    C.show(feature_0, feature_1, pdf = pdf)
+    #C.show(feature_0, feature_1, pdf = pdf)
     # Show scattered data, colored according to experiment index
-    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'experiments', pdf = pdf)
+    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'experiments', pdf = pdf)
     # Show scattered data, colored according to condition index
-    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'conditions', pdf = pdf)
+    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'conditions', pdf = pdf)
     # Show scattered data, colored according to labels
-    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'labels', pdf = pdf)
+    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'labels', pdf = pdf)
     # Show scattered data, colored according to density
-    C.show_scatter([feature_0, feature_1], stride = 0, mode = 'density', pdf = pdf)
+    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'density', pdf = pdf)
     # Show cluster distribution
     #C.show_distributions([feature_0, feature_1], pdf = pdf)
+    #C.labels = C.get_data_features(['label'])
+    #print(np.shape(C.get_data_features(['label'])))
+    #C.show_distributions(features, pdf = pdf)
 
     pdf.close()
