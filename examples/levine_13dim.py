@@ -15,11 +15,11 @@ from scipy.signal import argrelextrema
 
 pdf = PdfPages('levine_13dim_bin_all_possible_strategies.pdf')
 B = pyfloc.PyFloc(verbose = 2, prefix = 'levine_13dim')
-B.read_fcs(file_name = './data/flowc/levine_13dim.fcs', mode = 20000)
+B.read_fcs(file_name = './data/flowc/levine_13dim.fcs', mode = 10000)
 list_features= ['CD34','CD123','CD19','CD33','CD20','CD38','CD11b','CD4','CD8','CD90','CD45RA','CD45','CD3']
 # CD38 = non binarizzabile (k = 1.0, 0.25)
 # CD33 = binarizzabile con k = 0.25
-list_features= ['CD38']
+#list_features= ['CD38', 'CD33']
 B.clean_samples(features = ['label',], mode = 'nan')
 B.experiments.remove_outliers(list_features, 6.0)
 
@@ -68,6 +68,7 @@ for feature in list_features:
     #else:
     #    print('Feature: ',feature,' density peaks: ',density_peaks,' density_peaks_norm = ',density_peaks_norm,' energy = ',energy)
     B.counter += 1
+print(B)
 
 #print('List features: ',list_features_binary)
 #B.fit_cluster(list_features_binary, mode = 'Unique')
@@ -77,67 +78,6 @@ for feature in list_features:
 #B.predict_cluster()
 #energies = energies.flatten()
 
-#radius = 0.25
-#print('*******List features*********: ',list_features_binary)
-#
-#print('\n')
-#ns_clusters = np.arange(2,50,1)
-#
-##energies = B.fit_cluster(list_features_binary, ns_clusters = ns_clusters, radii = radius,  mode = 'DP')
-##B.predict_cluster()
-#
-#
-#for feature_bin in list_features_binary:
-#    print("Working on feature ", feature_bin)
-#    energies = B.fit_cluster([feature_bin], ns_clusters = ns_clusters, radii = radius, mode = 'DP')
-#    B.predict_cluster()
-#    B.order_labels()
-#    B.save_clustering(feature_bin)
-#
-#population_target = []
-#
-##cd11b monocyte
-#population_target.append('monocytes')
-#strategy = {'CD33':1, 'CD3':0, 'CD4':0, 'CD8':0 , 'CD19':0} 
-#versus = {'CD33':'CD45', 'CD3':'CD45', 'CD4':'CD3', 'CD8':'CD3', 'CD19':'CD45'} 
-#
-#### INIZIO PROVA STRATEGIE
-##for i_strategy, strategy in enumerate(all_strategies): 
-##    pop = population_target[i_strategy] 
-#s = {}
-#for key in list(strategy.keys()):
-#    s[key] = strategy[key]
-#    combo = B.combine_all_clustering(s)
-#    print("COMBO: ", combo, len(combo[0]))
-#    if len(combo[0]) == 0:
-#        print("No sample corresponds to the input strategy. Stop at feature ", key)
-#        break;
-#    target_pop = np.zeros(np.shape(B.experiments.labels), dtype=bool)
-#    target_pop[combo[0]] = True 
-#    B.experiments.show_scatter(features = [key,versus[key]], inds_inside = target_pop, pdf = pdf)
-#
-#pdf.close()
-##### FINE PROVA STRATEGIE
-#
-##print("Population: ", pop)
-#target_pop = np.zeros(np.shape(B.experiments.labels))
-#target_pop[combo[0]] = 1 #negli indici trovati metti la classificazione a 1
-#n_clusters = 2
-#C = deepcopy(B)
-#C.cluster.dtrajs = [target_pop] 
-#C.cluster.score(n_clusters = n_clusters)
-#print(C.cluster)
-#exit()
-#
-####
-#
-#energies = energies.flatten()
-
-#for i_cluster in (argrelextrema(energies, np.greater))[0][0:10]:
-#    n_clusters = ns_clusters[i_cluster]
-#    B.fit_cluster(list_features_binary, ns_clusters = n_clusters, radii = radius, mode = 'DP')
-#    B.predict_cluster()
-#    B.counter += 1
 
 pdf.close()
 exit()

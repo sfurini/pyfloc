@@ -131,12 +131,6 @@ class PyFloc(object):
                                 print('Running a clustering step for features {0:s}'.format(','.join(features)))
                                 self.fit_cluster(mode, features, **parameters)
                                 self.predict_cluster(**parameters)
-                                ### MM
-                                #print("******************************************LIST_FEATURES: ", self.experiments.get_features())
-                                #exit()
-                                #self.order_labels([self.experiments.get_features()[0], self.experiments.get_features()[1]]) #le prime due features, scegli quelle che vuoi
-                                #self.save_clustering()
-                                ###
                                 self.counter += 1
                             else:   #--- Everything else is considered a definition of feature synonyms
                                 self.features_synonym[key] = values
@@ -212,33 +206,16 @@ class PyFloc(object):
         else:
             pdf = None
         self.cluster.fit_predict(pdf = pdf, **kwargs)
+        #--- Save the resuls of clustering
+        self.experiments.labels = self.cluster.dtrajs[0] # experiments.labels is the one used for plotting
+        self.experiments.add_feature('label_'+'_'.join(self.features_last_clustering), self.experiments.labels) # this is useful when combining different clustering strategies (e.g.: several 1D clustering to mimik a gating strategy)
+        #--- Plotting and outputs
         if verbose > 0:
             self.cluster.show(pdf, plot_maps = (len(self.features_last_clustering) == 2), plot_hists = (len(self.features_last_clustering) == 1))
             print(self.cluster)
-        self.experiments.labels = self.cluster.dtrajs[0]
         if verbose > 1:
             self.experiments.show_distributions(features = self.features_last_clustering, pdf = pdf)
             pdf.close()
-    ### MM inizio
-    def save_clustering(self,feature):
-        #--- adds a column in format "labels_[feature]"
-        self.experiments.add_column_labels(feature) 
-    def order_labels(self): #ordina dal picco piu' basso al piu' alto dell'ultimo clustering monodimensionale
-        #-- orders peaks in ascending order and modifies labels so that 0 correspond to the minimum density peak and n correspond to the maximum
-        new_labels = []
-        cluster_analogic_sorted_temp = np.sort(np.array(self.cluster.clusters_analogic).flatten())
-        cluster_analogic_sorted = deepcopy(self.cluster.clusters_analogic)
-        cluster_analogic_sorted[0][0]=cluster_analogic_sorted_temp.min() 
-        cluster_analogic_sorted[1][0]=cluster_analogic_sorted_temp.max()
-        for i_cluster, cluster in enumerate(cluster_analogic_sorted):
-            i_cluster_analogic = np.where(self.cluster.clusters_analogic == cluster)[0][0]
-            new_labels.append(i_cluster_analogic)
-        self.experiments.labels = np.array(self.experiments.labels)
-        labels_temp = deepcopy(self.experiments.labels)
-        for i_label in range(len(new_labels)):
-            i_labels_temp = np.where(labels_temp == i_label)[0]
-            self.experiments.labels[i_labels_temp] = new_labels[i_label]
-        self.experiments.labels = list(self.experiments.labels) 
     def combine_clustering(self,feature0,feature1):
         #-- returns a dictionary which contains the indexes of the combinations of density peaks
         # i.e (0,0):[1,2,3,4] means that 1,2,3,4 are the indexes of the elements which have the lowest peak in feature0 and feature1

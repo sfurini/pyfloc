@@ -9,6 +9,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.optimize import linear_sum_assignment
+from copy import deepcopy
 import graphics
 import settings
 
@@ -176,6 +177,23 @@ class Cluster(object):
         self.transform()
         if self.clusters_analogic.size == 0: # the clustering algorithm did not define clusters_analogic, so it's done here using the centroids
             self.clusters_analogic = self.centroids()
+        self.sort_clusters()
+    def sort_clusters(self):
+        """
+        Change the order of the labels so that the norm of the cluster centers is sorted
+        """
+        norm = np.linalg.norm(self.clusters_analogic, axis = 1)
+        inds_sorted = np.argsort(norm)
+        clusters_analogic_not_sorted = deepcopy(self.clusters_analogic)
+        for ind_old, ind_new in enumerate(inds_sorted):
+            self.clusters_analogic[ind_old,:] = clusters_analogic_not_sorted[ind_new,:]
+        for i_traj, dtraj in enumerate(self.dtrajs):
+            dtraj_sorted = deepcopy(dtraj)
+            for ind_old, ind_new in enumerate(inds_sorted):
+                dtraj_sorted[dtraj == ind_old] = ind_new
+            self.dtrajs[i_traj] = dtraj_sorted
+            i_start, i_end = self.get_index_merged(i_traj)
+            self.dtrajs_merged[i_start:i_end] =  dtraj_sorted
     def analogic(self, dtraj):
         """Return the discretized trajectory in analogic form"""
         if not isinstance(dtraj,np.ma.MaskedArray):
@@ -514,8 +532,8 @@ class Cluster(object):
                     ax.plot(b,h,'-b', label = None)
                     if self.clusters_analogic.size > 0:
                         for i_cluster in range(self.n_clusters()):
-                            ib = np.argmin(np.abs(b -self.clusters_analogic[i_cluster])) 
-                            ax.plot(self.clusters_analogic[i_cluster], h[ib], 'o', label = 'cluster {0:d}'.format(i_cluster))
+                            ib = np.argmin(np.abs(b -self.clusters_analogic[i_cluster,i_dim])) 
+                            ax.plot(self.clusters_analogic[i_cluster,i_dim], h[ib], 'o', label = 'cluster {0:d}'.format(i_cluster))
                 plt.legend()
                 if pdf is not None:
                     pdf.savefig()
@@ -595,6 +613,7 @@ class Cluster(object):
         for i_cluster in range(self.n_clusters()):
             output += '\tCluster {0:d}\n'.format(i_cluster)
             output += '\t\tnumber of samples = {0:d}\n'.format(int(n_samples_per_cluster[i_cluster]))
+            output += '\t\tcenter = {0:s}\n'.format(':'.join([str(x) for x in self.clusters_analogic[i_cluster,:]]))
             output += '\t\tmeans = ' + str(self.get_mean_cluster(i_cluster)) + '\n'
             output += '\t\tstds = ' + str(self.get_std_cluster(i_cluster)) + '\n'
             if self.labels is not None:
@@ -1698,9 +1717,11 @@ if __name__ == '__main__':
     pdf = PdfPages('./test.pdf')
 
     X, y = make_data('1d_gate', 10000, 1)
+    #X, y = make_data('moons+', 1000, 100)
 
     C = DensityPeaks(trajs = X, labels = y, verbose = 2)
     C.search_cluster_centers(ns_clusters = np.arange(2,10,1), radii  = 0.5, metric = 'logarithmic', pdf = pdf)
+    #C.search_cluster_centers(ns_clusters = np.arange(3,10,1), radii  = 0.5, metric = 'euclidean', pdf = pdf)
     C.fit_predict()
 
     #C.score()

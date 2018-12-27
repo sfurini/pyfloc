@@ -19,6 +19,27 @@ plt.switch_backend('agg')
 np.set_printoptions(linewidth = np.inf)
 print = functools.partial(print, flush=True)
 
+def scatter_plot(ax, data, data_colors, contour):
+    if isinstance(data_colors,str):
+        if data_colors == 'density':
+            from scipy.stats import binned_statistic_2d
+            H, xe, ye, ix_iy = binned_statistic_2d(data[:,0], data[:,1], None, statistic = 'count', bins = 100, range = [[data[:,0].min(), data[:,0].max()],[data[:,1].min(), data[:,1].max()]], expand_binnumbers = True)
+            ix_iy -= 1
+            data_colors = H[ix_iy[0,:], ix_iy[1,:]]
+            data_colors = np.log10(data_colors)
+            ax.scatter(data[:,0], data[:,1], marker = ',', s = 1.0, c = data_colors, cmap = 'inferno')
+        else:
+            raise ValueError('ERROR: wrong colouring mode in scatter plot')
+    else:
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+        ax.plot(data[:,0], data[:,1],',k',markersize = 1.0, label = '')
+        for data_color in set(data_colors):
+            inds_data_color = (data_colors == data_color)
+            ax.plot(data[inds_data_color,0], data[inds_data_color,1], '.', markersize = 2.0, color = settings.colors[data_color%len(settings.colors)], label = str(data_color))
+    if contour is not None:
+        ax.plot(contour[0], contour[1], '--r')
+
 class Collection(object):
     """
     Set of FCS experiments
@@ -26,51 +47,55 @@ class Collection(object):
     Attributes
     ----------
     conditions: list of str
-    experiments: list of Experiment
+        These are the conditions of the experiments
+        e.g.: ['controls', 'cases']
+    experiments: list of object of class Experiment
+    normalize_mode: dict
+        key: str
+            Feature names
+        values: str
+            The method used to normalize the corresponding feature
     normalize_parameters: dict
         key: str
             Feature names
         values: list of float
-    labels: np.ndarray
-        Array of int, with the labels
+            These values have different meaning depending on the strategy used to normalize the features
     fis: list
-        Variables used to keep the interactive figures
+        Variables used for interactive figures
     """
     def __init__(self):
         self.conditions = []
         self.experiments = []
+        self.normalize_mode = {}
         self.normalize_parameters = {}
-        self.transform_mode = {}
-        self.labels = np.empty(0)
         self.fis = None
     def add_experiment(self, experiment, condition, labels = None):
         """
 	Parameters
 	----------
-        experiment: Experiment
+        experiment: object of class Experiment
         condition: str
         labels: np.ndarray
-            Same len as number of samples
+            If provided, it needs to be an array with length equal to the number of samples
             nan values are converted to -1
+            If not provided, all labels are set to -1
         """
         self.conditions.append(condition)
         self.experiments.append(experiment)
-        if labels is None:
-            self.labels = np.hstack((self.labels, -1*np.ones(experiment.get_n_samples()))).astype(int)
-        else:
-            if len(labels) != experiment.get_n_samples():
-                raise ValueError('ERROR: number of labels different from number of samples')
-            labels[np.isnan(labels)] = -1
-            self.labels = np.hstack((self.labels, labels.flatten())).astype(int)
-    ### MM
-    def add_column_labels(self, feature): 
-        for i_experiment, experiment in enumerate(self.experiments):
-            feature_label = "labels_"+str(feature)
-            i_start, i_end = self.get_boundaries(i_experiment)
-            all_indexes = np.arange(i_start, i_end)
-            indexes_experiment = self.get_indexes_experiment(all_indexes,i_experiment)
-            experiment.add_column(feature_label, np.array(self.labels)[indexes_experiment])
+    def add_feature(self, feature, data):
+        """
+        Add a new feature to all the experiments
 
+        Parameters
+        ----------
+        feature: str
+            The name of the feature to add
+        data: np.ndarray / list
+            The values for the new features
+        """
+        for i_experiment, experiment in enumerate(self.experiments):
+            i_start, i_end = self.get_boundaries(i_experiment)
+            experiment.add_feature(feature, data[i_start:i_end])
     def combine_clustering(self, feature0, feature1):
         feature_labels_0 = "labels_"+str(feature0)
         feature_labels_1 = "labels_"+str(feature1)
@@ -85,16 +110,11 @@ class Collection(object):
                     combo[(i_cluster_0,i_cluster_1)] = np.unique(np.array(list((set(np.where(data0 == i_cluster_0)[0]).intersection(np.where(data1==i_cluster_1)[0])))))
             combo_experiment.append(combo)
         return combo
- 
     def combine_all_clustering(self, dict_features):
-        feature_labels = []
-        for key in dict_features.keys():
-            feature_labels.append(str(key))
-        #print (feature_labels)
         combo_experiment = []
         for i_experiment, experiment in enumerate(self.experiments):
             combo = None 
-            for feature_label in feature_labels:
+            for feature_label in dict_features.keys():
                 data = experiment.get_data_features("labels_"+feature_label).flatten()
                 i_cluster = np.where(data == dict_features[feature_label])[0]
                 if combo is not None:
@@ -103,20 +123,25 @@ class Collection(object):
                     combo = i_cluster
             combo_experiment.append(combo)    
         return combo_experiment
- 
-
+    def get_n_conditions(self):
+        return len(set(self.conditions))
     def get_conditions(self):
         set_conditions = set(self.conditions)
-        # BEGIN: SOLUZIONE TEMPORANEA
-        #list_conditions = []
-        #for organ in ['BM', 'ILN', 'SPL']:
-        #    for day in ['pre', 'd3', 'd7']:
-        #        for condition in set_conditions:
-        #            if (organ in condition) and (day in condition):
-        #                list_conditions.append(condition)
-        # END: SOLUZIONE TEMPORANEA
         return list(set_conditions)
     def get_n_experiments(self, conditions = None):
+        """
+        Count the number of experiments
+
+        Parameters
+        ----------
+        conditions: list
+            If provided only the experiments of these conditions are counted
+
+        Returns
+        -------
+        int
+            The number of experiments
+        """
         if conditions is None:
             return len(self.experiments)
         if not isinstance(conditions, list):
@@ -127,6 +152,19 @@ class Collection(object):
                 n_experiments += 1
         return n_experiments
     def get_n_samples(self, conditions = None):
+        """
+        Count the number of samples
+
+        Parameters
+        ----------
+        conditions: list
+            If provided only the samples of these conditions are counted
+
+        Returns
+        -------
+        int
+            The number of samples
+        """
         if conditions is not None:
             if not isinstance(conditions, list):
                 conditions = [conditions,]
@@ -158,21 +196,13 @@ class Collection(object):
         Return
         ------
         np.array
-            Data in the experiment
+            Data for the requested feature
         """
         data = np.empty((0,len(features)))
         for experiment in self.experiments:
             data_experiment = experiment.get_data_features(features)
             data = np.vstack((data, data_experiment))
         return data
-    def get_min_feature(self, feature):
-        return np.nanmin(self.get_data_features([feature]))
-    def get_max_feature(self, feature):
-        return np.nanmax(self.get_data_features([feature]))
-    def get_mean_feature(self, feature):
-        return np.nanmean(self.get_data_features([feature]))
-    def get_std_feature(self, feature):
-        return np.nanstd(self.get_data_features([feature]))
     def get_data_norm_features(self, features):
         """
         Parameters
@@ -183,22 +213,55 @@ class Collection(object):
         Return
         ------
         np.array
-            Normalized data in the experiment
+            Normalized data for the requested features
         """
         data_norm = np.empty((0,len(features)))
         for experiment in self.experiments:
-            data_norm_experiment = experiment.get_data_norm_features(features)
+            if experiment.has_norm(features):
+                data_norm_experiment = experiment.get_data_norm_features(features).reshape(-1,len(features))
+            else:
+                data_norm_experiment = np.empty((experiment.get_n_samples(), len(features)))
+                data_norm_experiment[:] = np.nan
             data_norm = np.vstack((data_norm, data_norm_experiment))
         return data_norm
+    def get_something_feature(self, feature, function, norm = False):
+        if norm:
+            data = self.get_data_norm_features([feature])
+        else:
+            data = self.get_data_features([feature])
+        if (len(data) == 0):
+            return np.nan
+        return function(data)
+    def get_min_feature(self, feature):
+        return self.get_something_feature(feature, np.nanmin)
+    def get_max_feature(self, feature):
+        return self.get_something_feature(feature, np.nanmax)
+    def get_mean_feature(self, feature):
+        return self.get_something_feature(feature, np.nanmean)
+    def get_std_feature(self, feature):
+        return self.get_something_feature(feature, np.nanstd)
     def get_min_norm_feature(self, feature):
-        return np.min(self.get_data_norm_features([feature]))
+        return self.get_something_feature(feature, np.nanmin, norm = True)
     def get_max_norm_feature(self, feature):
-        return np.max(self.get_data_norm_features([feature]))
+        return self.get_something_feature(feature, np.nanmax, norm = True)
     def get_mean_norm_feature(self, feature):
-        return np.mean(self.get_data_norm_features([feature]))
+        return self.get_something_feature(feature, np.nanmean, norm = True)
     def get_std_norm_feature(self, feature):
-        return np.std(self.get_data_norm_features([feature]))
+        return self.get_something_feature(feature, np.nanstd, norm = True)
     def get_boundaries(self, i_experiment):
+        """
+        Parameters
+        ----------
+        i_experiment: int
+            Index of the object Experiment in the list self.experiments
+
+        Return
+        ------
+        ind_start: int
+            The index of the first element of the experiment i_experiment
+        ind_end: int
+            The index of the last element of the experiment i_experiment
+        """
         ind_start = 0
         ind_end = self.experiments[0].get_n_samples()
         for i in range(1,i_experiment+1):
@@ -207,6 +270,10 @@ class Collection(object):
         return ind_start, ind_end
     def get_indexes_conditions(self, conditions):
         """
+        Parameters
+        ----------
+        conditions: list / str
+            
         Return
         ------
         list
@@ -238,10 +305,6 @@ class Collection(object):
         for i_experiment, experiment in enumerate(self.experiments):
             print('Running compensation for experiment {0:d}'.format(i_experiment))
             experiment.compensate()
-    def stretch(self, features, thrs):
-        for feature in features:
-            for i_experiment, experiment in enumerate(self.experiments):
-                experiment.stretch(feature, thrs)
     def normalize(self, features, verbose = 0, **kwargs):
         """
         Parameters
@@ -284,11 +347,11 @@ class Collection(object):
                 self.normalize_parameters[feature] = [L.T, L.M, L.A, L.p, L.W] 
             else:
                 raise ValueError('ERROR: '+kwargs['mode']+' is not a normalization mode')
+            self.normalize_mode[feature] = kwargs['mode']    
             for i_experiment, experiment in enumerate(self.experiments):
                 if (verbose > 0):
                     print('Running normalization for feature {0:s} in experiment {1:d} with mode {2:s}'.format(feature, i_experiment,kwargs.get('mode','min')))
-                experiment.normalize(feature, self.normalize_parameters, **kwargs)
-            self.transform_mode[feature] = kwargs['mode']    
+                experiment.normalize(feature, self.transform)
     def transform(self, feature, data):
         """
         Parameters
@@ -298,24 +361,24 @@ class Collection(object):
         data: np.ndarray
             One dimensional array with data along that feature
         """
-        if self.transform_mode[feature] == 'min':
+        if self.normalize_mode[feature] == 'min':
             return data - self.normalize_parameters[feature] + 1.0
-        elif self.transform_mode[feature] == 'min_max':
+        elif self.normalize_mode[feature] == 'min_max':
             return (data - self.normalize_parameters[feature][0]) / (self.normalize_parameters[feature][1] - self.normalize_parameters[feature][0]) 
-        elif self.transform_mode[feature] == 'mean_std':
+        elif self.normalize_mode[feature] == 'mean_std':
             return (data - self.normalize_parameters[feature][0]) / self.normalize_parameters[feature][1]
-        elif self.transform_mode[feature] == 'arcsinh':
+        elif self.normalize_mode[feature] == 'arcsinh':
             return np.arcsinh((data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1])
-        elif self.transform_mode[feature] == 'log10':
+        elif self.normalize_mode[feature] == 'log10':
             dummy = (data - self.normalize_parameters[feature])
             return np.log10(dummy + 1.0)
-        elif self.transform_mode[feature] == 'sqrt':
+        elif self.normalize_mode[feature] == 'sqrt':
             dummy = data - self.normalize_parameters[feature]
             return np.sqrt(dummy)
-        elif self.transform_mode[feature] == 'sigmoid':
+        elif self.normalize_mode[feature] == 'sigmoid':
             dummy = (data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1]
             return 1.0 / ( 1.0 + np.exp(-dummy) )
-        elif self.transform_mode[feature] == 'logicle':
+        elif self.normalize_mode[feature] == 'logicle':
             L = logicleScale.LogicleScale(data)
             L.calculate_y(
                     T = self.normalize_parameters[feature][0],
@@ -325,7 +388,7 @@ class Collection(object):
                     W = self.normalize_parameters[feature][4])
             return L.y
         else:
-            raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.transform_mode[feature]))
+            raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.normalize_mode[feature]))
     def back_transform(self, feature, data):
         """
         Parameters
@@ -337,24 +400,24 @@ class Collection(object):
         """
         if isinstance(data,list):
             data = np.array(data)
-        if self.transform_mode[feature] == 'min':
+        if self.normalize_mode[feature] == 'min':
             return data + self.normalize_parameters[feature] - 1.0
-        elif self.transform_mode[feature] == 'min_max':
+        elif self.normalize_mode[feature] == 'min_max':
             return data * (self.normalize_parameters[feature][1] - self.normalize_parameters[feature][0]) + self.normalize_parameters[feature][0]
-        elif self.transform_mode[feature] == 'mean_std':
+        elif self.normalize_mode[feature] == 'mean_std':
             return data * self.normalize_parameters[feature][1] + self.normalize_parameters[feature][0]
-        elif self.transform_mode[feature] == 'arcsinh':
+        elif self.normalize_mode[feature] == 'arcsinh':
             return self.normalize_parameters[feature][1]*np.sinh(data)
-        elif self.transform_mode[feature] == 'log10':
+        elif self.normalize_mode[feature] == 'log10':
             dummy = np.power(10.0, data)
             return dummy - 1.0 + self.normalize_parameters[feature] 
-        elif self.transform_mode[feature] == 'sqrt':
+        elif self.normalize_mode[feature] == 'sqrt':
             dummy = np.power(data,2.0)
             return dummy + self.normalize_parameters[feature]
-        elif self.transform_mode[feature] == 'sigmoid':
+        elif self.normalize_mode[feature] == 'sigmoid':
             dummy = np.log(np.array(data) / (1.0 - np.array(data)))
             return dummy*self.normalize_parameters[feature][1] + self.normalize_parameters[feature][0]
-        elif self.transform_mode[feature] == 'logicle':
+        elif self.normalize_mode[feature] == 'logicle':
             if not isinstance(data, np.ndarray):
                 data = np.array([data,])
             data = data.flatten()
@@ -368,7 +431,7 @@ class Collection(object):
                     W = self.normalize_parameters[feature][4])
             return original_data
         else:
-            raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.transform_mode[feature]))
+            raise NotImplementedError('ERROR: mode {0:s} is not implemented'.format(self.normalize_mode[feature]))
     def delete_samples(self, inds, verbose = 0):
         """
         Parameters
@@ -390,10 +453,6 @@ class Collection(object):
             if len(inds_experiment) and (verbose > 0):
                 print('\t{0:d} samples from experiment {1:d}'.format(len(inds_experiment), i_experiment))
             self.experiments[i_experiment].delete_samples(inds_experiment)
-        # Remove labels of deleted samples
-        if len(inds) > 0:
-            self.labels[inds] = -123456789 # just a random number to mark them for delete
-            self.labels = self.labels[self.labels != -123456789]
     def clean_samples(self, features = None, mode = 'nan'):
         if features is None:
             features = self.get_features()
@@ -462,65 +521,25 @@ class Collection(object):
                 print('Removing {0:d} outliers for feature {1:s}'.format(len(inds_delete),feature))
             self.delete_samples(inds_delete)
         print('Number of samples after outliers removal {0:d}'.format(self.get_n_samples()))
-    def show_histogram(self, pdf, list_features = [], nbins = 100):
-        if not list_features:
-            list_features = self.get_features()
-        for feature in list_features:
-            data = self.get_data_features([feature,])
-            data_norm = self.get_data_norm_features([feature,])
-            has_norm = not np.prod(np.isnan(data_norm))
-            f = plt.figure()
-            if has_norm:
-                ax1 = f.add_subplot(211)
-                ax2 = f.add_subplot(212)
-            else:
-                ax1 = f.add_subplot(111)
-            h, e = np.histogram(data, bins = nbins, normed = True)
-            b = 0.5*(e[:-1] + e[1:])
-            ax1.plot(b,h,'-')
-            if has_norm:
-                h, e = np.histogram(data_norm, bins = nbins, normed = True)
-                b = 0.5*(e[:-1] + e[1:])
-                ax2.plot(b,h,'-')
-                ##--- change labels to actual values / x-axis
-                #possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
-                #possible_ticklabels = ['-10^3','-10^2','-10^-1','0','10^1','10^2','10^3','','','','','','','','','10^4','','','','','','','','','10^5','','','','','','','','']
-                #x_norm_min, x_norm_max = ax2.get_xlim()
-                #x_min, x_max = self.back_transform(feature, [x_norm_min, x_norm_max])
-                #x_ticks = []
-                #x_ticklabels = []
-                #for ind, x_tick in enumerate(possible_ticks):
-                #    if (x_tick > x_min) and (x_tick < x_max):
-                #        x_ticks.append(x_tick)
-                #        x_ticklabels.append(possible_ticklabels[ind])
-                #x_ticks = np.array(x_ticks)
-                #x_ticks_norm = self.transform(feature, x_ticks)
-                #ax2.set_xticks(x_ticks_norm)
-                #ax2.set_xticklabels(x_ticklabels)
-            plt.sca(ax1)
-            plt.title(feature)
-            plt.sca(ax2)
-            pdf.savefig()
-            plt.yscale('log')
-            pdf.savefig()
-            plt.close()
-    def show_scatter(self, features, features_synonym = {}, stride = 0, contour = None, mode = 'experiments', inds_inside = None, pdf = None):
+    def show(self, features, stride = 0, contour = None, mode = 'experiments', inds_inside = None, pdf = None):
         """
-        Scatter plots of samples. It works only with 2 features
-        The differences between this method and self.show are:
-        - self.show only plot dots for all the experiments one by one
-        - this method plots all the experiments together (plus separate plots if using pdf)
+        Scatter plots of samples
 
         Parameters
         ----------
         features: list of str
             The names of the features
-        features_synonym:   dict
-            key: features
-            values: alternative names
         stride: int
             Sampling period
-        countout:
+        countour:
+        mode: str / np.ndarray
+            Possible values:
+            - 'experiments': Use different colors for different experiments
+            - 'conditions': Use different colors for different conditions
+            - 'density':
+            - np.ndarray
+        inds_inside: np.ndarray
+            Array of boolean values
         """
         if len(features) != 2:
             print('WARNING: scatter plot is possible only with two features')
@@ -528,7 +547,13 @@ class Collection(object):
         features = deepcopy(features)
         data = self.get_data_features([features[0], features[1]])
         data_norm = self.get_data_norm_features([features[0], features[1]])
+        #--- Chech if it's necessary to divide the data in inside/outside
         if inds_inside is not None: # divide data in inside and outside
+            if not isinstance(inds_inside,np.ndarray):
+                raise ValueError('ERROR: wrong format for inds_inside')
+            inds_inside = inds_inside.flatten()
+            if np.sum(inds_inside) == 0:
+                raise ValueError('ERROR: no sample was selected ')
             inds_outside = np.logical_not(inds_inside)
             data_outside = data[inds_outside,:]
             data_norm_outside = data_norm[inds_outside,:]
@@ -537,77 +562,52 @@ class Collection(object):
         else:
             data_outside = None
             data_norm_outside = None
-        for i_feature, feature in enumerate(features):
-            features[i_feature] = features_synonym.get(feature, feature)
-        if mode == 'experiments':
-            data_colors = np.empty(data.shape[0]).astype(int)
+        #--- Set the sampling period
+        if stride == 0:
+            stride = max(int(data.shape[0] / 10000),1)
+            if data_outside is not None:
+                stride_outside = max(int(data_outside.shape[0] / 10000),1)
+                data_outside = data_outside[::stride_outside,:]
+                data_norm_outside = data_norm_outside[::stride_outside,:]
+        else:
+            if data_outside is not None:
+                data_outside = data_outside[::stride,:]
+                data_norm_outside = data_norm_outside[::stride,:]
+        data = data[::stride,:]
+        data_norm = data_norm[::stride,:]
+        #--- Set the method used for coloring
+        if isinstance(mode, np.ndarray):
+            data_colors = mode.flatten().astype(int)
+            if len(data_colors) != self.get_n_samples():
+                raise ValueError('ERROR: wrong number of samples in array')
+            data_colors = data_colors[::stride]
+        elif mode == 'experiments':
+            data_colors = np.empty(self.get_n_samples()).astype(int)
             for i_experiment, experiment in enumerate(self.experiments):
                 i_start, i_end = self.get_boundaries(i_experiment)
                 data_colors[i_start:i_end] = i_experiment
+            data_colors = data_colors[::stride]
         elif mode == 'conditions':
-            data_colors = np.empty(data.shape[0]).astype(int)
+            data_colors = np.empty(self.get_n_samples()).astype(int)
             for i_condition, condition in enumerate(self.get_conditions()):
                 inds_conditions = self.get_indexes_conditions(condition)
                 data_colors[inds_conditions] = i_condition
-        elif mode == 'labels':
-            data_colors = self.labels
+            data_colors = data_colors[::stride]
         elif mode == 'density':
-            data_colors = 'density' # in this case, it is calculated inside single_scatter_plot
+            data_colors = 'density' # in this case, it is calculated inside scatter_plot
         else:
             raise NotImplementedError('ERROR normalization mode {0:s} not implemented'.format(mode))
-        self.single_scatter_plot(data, data_norm, data_colors, features, stride, contour, '', pdf, data_outside, data_norm_outside)
-        #if (pdf is not None) and (len(self.get_conditions()) > 1): # if more than one conditions exist, make also separate plots (but only if we're plotting on PDF)
-        #    for conditions in self.get_conditions():
-        #        inds_conditions = self.get_indexes_conditions(conditions)
-        #        try:
-        #            self.single_scatter_plot(data[inds_conditions,:], data_norm[inds_conditions,:], data_colors[inds_conditions], features, stride, contour, conditions, pdf)
-        #        except:
-        #            self.single_scatter_plot(data[inds_conditions,:], data_norm[inds_conditions,:], data_colors, features, stride, contour, conditions, pdf)
-    def single_scatter_plot(self, data, data_norm, data_colors, features, stride, contour, title, pdf, data_outside = None, data_norm_outside = None):
-        """
-        It's the method actually making the scatter plot
-        """
-        if stride == 0:
-            stride = max(int(data.shape[0] / 20000),1)
-            if data_outside is not None:
-                stride_outside = max(int(data_outside.shape[0] / 10000),1)
-        else:
-            if data_outside is not None:
-                stride_outside = stride
-        data = data[::stride,:]
-        data_norm = data_norm[::stride,:]
-        has_norm = not np.prod(np.isnan(data_norm))
+        #--- Initialize the figure
         f = plt.figure()
         ax1 = f.add_subplot(111)
-        #if has_norm:
-        #    ax1 = f.add_subplot(311)
-        #    ax2 = f.add_subplot(312)
-        #else:
-        #    ax1 = f.add_subplot(211)
-        #    ax2 = f.add_subplot(212)
-        #if data_outside is not None:
-        #    ax1.plot(data_outside[::stride_outside,0], data_outside[::stride_outside,1], ', ', color  = 'dimgray')
-        #    ax2.plot(data_outside[::stride_outside,0], data_outside[::stride_outside,1], ', ', color  = 'dimgray')
-        #self.single_scatter_panel(ax1, data, data_colors, contour, stride)
-        #self.single_scatter_panel(ax2, data, data_colors, contour, stride)
-        #plt.sca(ax1)
-        #plt.ylabel(features[1])
-        #plt.sca(ax2)
-        #plt.xlim([data[data[:,0] > 0,0].min(), data[:,0].max()])
-        #plt.ylim([data[data[:,1] > 0,1].min(), data[:,1].max()])
-        #plt.xscale('log')
-        #plt.yscale('log')
-        #plt.ylabel(features[1])
-        #if not isinstance(data_colors,str):
-        #    plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5)) 
-        if not has_norm:
+        if np.prod(np.isnan(data_norm)):
             if data_outside is not None:
                 ax1.plot(data_outside[::stride_outside,0], data_outside[::stride_outside,1], ', ', color  = 'dimgray')
-            self.single_scatter_panel(ax1,  data, data_colors, contour, stride)
+            scatter_plot(ax1,  data, data_colors, contour)
         else:
             if data_outside is not None:
                 ax1.plot(data_norm_outside[::stride_outside,0], data_norm_outside[::stride_outside,1], ', ', color  = 'dimgray')
-            self.single_scatter_panel(ax1,  data_norm, data_colors, contour, stride)
+            scatter_plot(ax1,  data_norm, data_colors, contour)
             #--- change labels to actual values / x-axis
             possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
             possible_ticklabels = ['-10^3','-10^2','-10^-1','0','10^1','10^2','10^3','','','','','','','','','10^4','','','','','','','','','10^5','','','','','','','','']
@@ -636,98 +636,82 @@ class Collection(object):
             y_ticks_norm = self.transform(features[0], y_ticks)
             ax1.set_yticks(y_ticks_norm)
             ax1.set_yticklabels(y_ticklabels)
-        plt.ylabel(features[1])
         plt.xlabel(features[0])
-        plt.title(title)
+        plt.ylabel(features[1])
         if pdf is not None:
             pdf.savefig()
             plt.close()
         else:
             self.fis = graphics.AxesScaleInteractor(f)
-    def single_scatter_panel(self, ax, data, data_colors, contour, stride):
-        if isinstance(data_colors,str):
-            if data_colors == 'density':
-                from scipy.stats import binned_statistic_2d
-                H, xe, ye, ix_iy = binned_statistic_2d(data[:,0], data[:,1], None, statistic = 'count', bins = 100, range = [[data[:,0].min(), data[:,0].max()],[data[:,1].min(), data[:,1].max()]], expand_binnumbers = True)
-                ix_iy -= 1
-                data_colors = H[ix_iy[0,:], ix_iy[1,:]]
-                data_colors = np.log10(data_colors)
-                ax.scatter(data[:,0], data[:,1], marker = ',', s = 1.0, c = data_colors, cmap = 'inferno')
-                #plt.xlim([data[:,0].min(), data[:,0].max()])
-                #plt.ylim([data[:,1].min(), data[:,1].max()])
-        else:
-            box = ax.get_position()
-            ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
-            ax.plot(data[:,0], data[:,1],',k',markersize = 1.0, label = '')
-            data_colors = data_colors[::stride]
-            for data_color in set(data_colors):
-                inds_data_color = (data_colors == data_color)
-                ax.plot(data[inds_data_color,0], data[inds_data_color,1], '.', markersize = 2.0, color = settings.colors[data_color%len(settings.colors)], label = str(data_color))
-        if contour is not None:
-            ax.plot(contour[0], contour[1], '--r')
-        #from sklearn import mixture
-        #for data_color in set(data_colors):
-        #    inds_data_color = (data_colors == data_color)
-        #    if len(data[inds_data_color,0]) > 100: 
-        #        H, xe, ye = np.histogram2d(np.log10(data[inds_data_color,0]), np.log10(data[inds_data_color,1]), bins = 200, range = [[1,4.5], [1,4]])
-        #        xb = 0.5*(xe[:-1]+xe[1:])
-        #        yb = 0.5*(ye[:-1]+ye[1:])
-        #        X, Y = np.meshgrid(xb,yb)
-        #        X = np.transpose(X)
-        #        Y = np.transpose(Y)
-        #        clf = mixture.GaussianMixture(n_components = 50, covariance_type = 'full')
-        #        data_log10 = np.log10(data[inds_data_color,:])
-        #        inds_del = np.where(np.sum(np.logical_not(np.isfinite(data_log10)), axis = 1))[0]
-        #        data_log10 = np.delete(data_log10, inds_del, axis = 0)
-        #        clf.fit(data_log10)
-        #        XY = np.array([X.ravel(), Y.ravel()]).T
-        #        Z = clf.score_samples(XY)
-        #        Z = Z.reshape(X.shape)
-        #        Z -= np.min(Z) 
-        #        Z /= np.sum(Z)
-        #        Zlog = np.log10(Z)
-        #        Zlog[np.logical_not(np.isfinite(Zlog))] = np.nan
-        #        f = plt.figure()
-        #        ax = f.add_subplot(111)
-        #        box = ax.get_position()
-        #        ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
-        #        ax.plot(data[:,0], data[:,1],',k',markersize = 1.0, label = 'all samples')
-        #        ax.plot(data[inds_data_color,0], data[inds_data_color,1], '.', markersize = 2.0, color = settings.colors[data_color%len(settings.colors)], label = str(data_color))
-        #        plt.title(str(data_color))
-        #        plt.xlabel(features[0])
-        #        plt.ylabel(features[1])
-        #        plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
-        #        pdf.savefig()
-        #        plt.xscale('log')
-        #        plt.yscale('log')
-        #        pdf.savefig()
-        #        plt.close()
-        #        f = plt.figure()
-        #        ax = f.add_subplot(111)
-        #        ax.pcolormesh(X, Y, np.log10(H), cmap = plt.get_cmap('hot'))
-        #        ax.contour(X, Y, Zlog, levels = np.linspace(np.nanmin(Zlog), np.nanmax(Zlog), 100), cmap = plt.get_cmap('winter'))
-        #        pdf.savefig()
-        #        plt.close()
-    def show_distributions(self, features, features_synonym = {}, clusters_order = None, pdf = None):
+    def show_histogram(self, pdf, features = [], nbins = 100):
         """
+        Plot 1D histograms
+
+        Parameters
+        ----------
+        pdf: PdfPages
+        features: list
+        nbins: int
         """
-        if isinstance(self.labels, np.ndarray):
-            self.labels = list(self.labels.flatten())
-        if len(set(self.labels)) == 1:
-            print('WARNING: no distribution to plot if labels are not defined')
-            return
+        if not features:
+            features = self.get_features()
+        for feature in features:
+            data = self.get_data_features([feature,])
+            data_norm = self.get_data_norm_features([feature,])
+            has_norm = not np.prod(np.isnan(data_norm).flatten())
+            f = plt.figure()
+            if has_norm:
+                ax1 = f.add_subplot(211)
+                ax2 = f.add_subplot(212)
+            else:
+                ax1 = f.add_subplot(111)
+            h, e = np.histogram(data, bins = nbins, normed = True)
+            b = 0.5*(e[:-1] + e[1:])
+            ax1.plot(b,h,'-')
+            if has_norm:
+                h, e = np.histogram(data_norm, bins = nbins, normed = True)
+                b = 0.5*(e[:-1] + e[1:])
+                ax2.plot(b,h,'-')
+                #--- change labels to actual values / x-axis
+                possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
+                possible_ticklabels = ['-10^3','-10^2','-10^-1','0','10^1','10^2','10^3','','','','','','','','','10^4','','','','','','','','','10^5','','','','','','','','']
+                x_norm_min, x_norm_max = ax2.get_xlim()
+                x_min, x_max = self.back_transform(feature, [x_norm_min, x_norm_max])
+                x_ticks = []
+                x_ticklabels = []
+                for ind, x_tick in enumerate(possible_ticks):
+                    if (x_tick > x_min) and (x_tick < x_max):
+                        x_ticks.append(x_tick)
+                        x_ticklabels.append(possible_ticklabels[ind])
+                x_ticks = np.array(x_ticks)
+                x_ticks_norm = self.transform(feature, x_ticks)
+                ax2.set_xticks(x_ticks_norm)
+                ax2.set_xticklabels(x_ticklabels)
+            plt.sca(ax1)
+            plt.title(feature)
+            pdf.savefig()
+            plt.close()
+    def show_distributions(self, features, labels, clusters_order = None, pdf = None):
+        """
+        Parameters
+        ----------
+        features: list of str
+        labels: np.ndarray
+        """
+        if not isinstance(labels, np.ndarray):
+            raise ValueError('ERROR: wrong data format')
+        labels = labels.flatten().astype(int)
+        if len(labels) != self.get_n_samples():
+            raise ValueError('ERROR: wrong number of labels')
         data = self.get_data_norm_features(features)
         features = deepcopy(features)
-        for i_feature, feature in enumerate(features):
-            features[i_feature] = features_synonym.get(feature, feature)
-        labels = self.labels
         dummy, clusters_order = self.plot_distributions(data, labels, features, clusters_order, 'All experiments', pdf)
-        if (len(self.get_conditions()) > 1): # if more than one conditions exist, make also separate plots and distributions among populations
+        if (self.get_n_conditions() > 1): # if more than one conditions exist, make also separate plots and distributions among populations
             percents_conditions = []
             for conditions in self.get_conditions():
                 inds_conditions = self.get_indexes_conditions(conditions)
                 if pdf is None:
-                    percents = np.array([np.sum(labels[inds_conditions] == label) for label in list(set(self.labels))]).astype(float) # percentage number of elements in each cluster
+                    percents = np.array([np.sum(labels[inds_conditions] == label) for label in list(set(labels))]).astype(float) # percentage number of elements in each cluster
                     percents /= np.sum(percents)
                 else:
                     percents, dummy = self.plot_distributions(data[inds_conditions,:], labels[inds_conditions], features, clusters_order, conditions, pdf) # separate plots, and get back the percents in clusters
@@ -740,7 +724,7 @@ class Collection(object):
             ax = f.add_subplot(121)
             cax = ax.matshow(np.log10(percents_conditions[clusters_order,:]), cmap = 'binary')
             cbar = f.colorbar(cax)
-            plt.xticks(range(len(self.get_conditions())),self.get_conditions(),rotation='vertical')
+            plt.xticks(range(self.get_n_conditions()),self.get_conditions(),rotation='vertical')
             plt.yticks(range(len(set(labels))),clusters_order)
             plt.ylabel('cluster index')
             cbar.set_label('Occupancies')
@@ -749,7 +733,7 @@ class Collection(object):
             percents_conditions_norm = (percents_conditions - np.min(percents_conditions, axis = 1).reshape((percents_conditions.shape[0],1))) / (np.max(percents_conditions, axis = 1).reshape((percents_conditions.shape[0],1)) - np.min(percents_conditions, axis = 1).reshape((percents_conditions.shape[0],1)))
             cax = ax.matshow(percents_conditions_norm[clusters_order,:], cmap = 'binary')
             cbar = f.colorbar(cax)
-            plt.xticks(range(len(self.get_conditions())),self.get_conditions(),rotation='vertical')
+            plt.xticks(range(self.get_n_conditions()),self.get_conditions(),rotation='vertical')
             plt.yticks(range(len(set(labels))),clusters_order)
             plt.ylabel('cluster index')
             cbar.set_label('Row-normalized Occupancies')
@@ -768,7 +752,7 @@ class Collection(object):
             The names of the features
         """
         from scipy.cluster.hierarchy import dendrogram, linkage
-        list_labels = list(set(self.labels))
+        list_labels = list(set(labels))
         n_labels = len(list_labels) 
         n_features = len(features)
         #--- Data table
@@ -867,16 +851,12 @@ class Collection(object):
             pdf.savefig()
             plt.close()
         return percents, clusters_order
-    def show(self, feature_0, feature_1, stride = 0, pdf = None):
-        """
-        """
-        for i_experiment, experiment in enumerate(self.experiments):
-            condition = self.conditions[i_experiment]
-            experiment.show(feature_0, feature_1, stride, condition, pdf)
     def write(self, file_name):
         with open(file_name,'wb') as fout:
             pickle.dump(self, fout)
     def __str__(self):
+        if self.get_n_experiments() == 0:
+            return 'Empty pyfloc object'
         output  = 'Number of experiments: {0:d}\n'.format(self.get_n_experiments())
         output += 'Number of sample: {0:d}\n'.format(self.get_n_samples())
         output += 'Number of common features: {0:d}\n'.format(len(self.get_features()))
@@ -899,11 +879,17 @@ class Experiment(object):
 
     Attributes
     ----------
-    sample: <class 'FlowCytometryTools.core.containers.FCMeasurement'>
+    sample: object of <class 'FlowCytometryTools.core.containers.FCMeasurement'>
     data: np.array
         Raw data
     data_norm: np.array
         Normalized data
+    features: list
+        Name of the features
+    features_synonym: list
+        Alternative names for the features
+    features_normalized: list
+        Name of the features that were normalized
     fis: list
         Variables used to store the interactive figures
     """
@@ -919,6 +905,7 @@ class Experiment(object):
                 int = choose INT elements at random, this is usefull for quick tests of the code
         id_sample: int
         """
+        #--- Initialize data
         self.sample = FCMeasurement(ID = id_sample, datafile = file_name)
         if mode == 'all':
             self.data = np.copy(self.sample.data.values[:,:])
@@ -927,23 +914,41 @@ class Experiment(object):
             self.data = np.copy(self.sample.data.values[inds_samples,:])
         else:
             raise ValueError('ERROR: wrong reading mode {0}'.format(mode))
-        self.data_norm = np.nan*np.ones(np.shape(self.data))
-        self.fis = []
         print('Read {0:d} samples from {1:s}'.format(self.get_n_samples(), file_name))
-        self.set_features()
-        self.set_features_synonym()
-    ### MM
-    def add_column(self, feature, column):
+        #--- Initialized other attributes
+        self.data_norm = np.empty((self.get_n_samples(),0))
+        self.features = list(self.sample.data.columns)
+        self.features_synonym = deepcopy(self.features)
+        self.features_norm = []
+        for key, value in self.sample.meta.items():
+            if len(key) > 2:
+                if (key[0:2] == '$P') and (key[-1] == 'S'):
+                    index = int(key[2:-1])-1
+                    self.features_synonym[index] = value
+        self.fis = []
+    def add_feature(self, feature, data):
+        """
+        Parameters
+        ----------
+        feature: str
+            The name of the feature to add
+        data: np.ndarray / list
+            The values to add
+        """
+        if isinstance(data, list):
+            data = np.array(data)
+        if not isinstance(data, np.ndarray):
+            raise ValueError('ERROR: wrong data format')
+        if len(data) != self.get_n_samples():
+            raise ValueError('ERROR: wrong number of values for feature {0:s}'.format(feature))
+        data = data.reshape(-1,1)
         if feature not in self.features:
-            self.data = np.hstack((self.data, np.reshape(column,(self.data.shape[0],1))))
+            self.data = np.hstack((self.data, data))
             self.features.append(feature)
-        else: #se c'era di gia' sovrascrive 
-            self.data[self.get_index_features(feature)] = np.reshape(column,(self.data.shape[0],1))
-    ###
-    def randomize(self):
-        """
-        """
-        pass
+            self.features_synonym.append(feature)
+        else:
+            print('WARNING: {0:s} already exist, overwritting'.format(feature))
+            self.data[:,self.get_index_features([feature,])] = data
     def get_n_samples(self):
         """
         Return
@@ -970,10 +975,16 @@ class Experiment(object):
         return self.data_norm
     def get_data_features(self, features):
         if not isinstance(features, list):
+            if not isinstance(features, str):
+                raise ValueError('ERROR: wrong format for feature')
             features = [features,]
         return self.data[:,self.get_index_features(features)]
     def get_data_norm_features(self, features):
-        return self.data_norm[:,self.get_index_features(features)]
+        if not isinstance(features, list):
+            if not isinstance(features, str):
+                raise ValueError('ERROR: wrong format for feature')
+            features = [features,]
+        return self.data_norm[:,self.get_index_norm_features(features)]
     def get_index_features(self, features):
         ind_features = []
         for feature in features:
@@ -982,32 +993,22 @@ class Experiment(object):
             elif feature in self.get_features_synonym():
                 ind_features.append(self.get_features_synonym().index(feature))
             else:
-                print(type(features))
-                print(features)
-                print(feature)
                 raise ValueError('Feature {0:s} does not exist'.format(feature))
         return ind_features
-    def set_features(self):
-        """
-        Return
-        ------
-        list
-            Name of the features
-        """
-        self.features = list(self.sample.data.columns)
-    def get_features_synonym(self):
-        return self.features_synonym
+    def get_index_norm_features(self, features):
+        ind_features = []
+        for feature in features:
+            if feature in self.get_norm_features():
+                ind_features.append(self.get_norm_features().index(feature))
+            else:
+                raise ValueError('Feature {0:s} was not normalized'.format(feature))
+        return ind_features
     def get_features(self):
         return self.features
-    def set_features_synonym(self):
-        features = deepcopy(self.get_features())
-        for key, value in self.sample.meta.items():
-            if len(key) > 2:
-                if (key[0:2] == '$P') and (key[-1] == 'S'):
-                    index = int(key[2:-1])-1
-                    #print(key,' = ',value,' = ',index,' = ',features[index])
-                    features[index] = value
-        self.features_synonym = features
+    def get_features_synonym(self):
+        return self.features_synonym
+    def get_norm_features(self):
+        return self.features_norm
     def get_compensation(self):
         try:
             spill_str = self.sample.meta['SPILL']
@@ -1019,103 +1020,74 @@ class Experiment(object):
         ind_features = self.get_index_features(name_features)
         compensate_matrix= np.array([float(x) for x in spill[n_features+1:]]).reshape((n_features, n_features))
         return ind_features, compensate_matrix
-    def has_norm(self):
+    def has_norm(self, features):
         """
         Return True if normalized data were defined for this experiment
+
+        Parameters
+        ----------
+        feature: list
+            If defined, it checks if the features in the list were normalized
+            Otherwise, the return value is True if any feature was normalized
         """
-        return not np.prod(np.isnan(self.data_norm))
+        if not isinstance(features, list):
+            if not isinstance(features, str):
+                raise ValueError('ERROR: wrong format for feature')
+            features = [features,]
+        return all([feature in self.get_norm_features() for feature in features])
     def compensate(self):
         ind_features, compensate_matrix = self.get_compensation()
         self.data[:,ind_features] = np.dot(self.data[:,ind_features],np.linalg.inv(compensate_matrix))
-    def stretch(self, feature, thrs, alpha = 0.5, n = 2.0):
-        ind_features = self.get_index_features([feature])
-        data_norm = self.data_norm[:,ind_features]
-        data_norm_stretched = np.zeros(data_norm.shape)
-
-        inds = data_norm < thrs['peak_low']
-        data_norm_stretched[inds] = - alpha * ( (data_norm[inds] - thrs['peak_low']) / (thrs['min'] - thrs['peak_low']) )**n
-
-        inds = data_norm >= thrs['peak_high']
-        data_norm_stretched[inds] = 1 + alpha * ( (data_norm[inds] - thrs['peak_high']) / (thrs['max'] - thrs['peak_high']) )**n
-
-        inds = (data_norm >= thrs['peak_low']) & (data_norm < thrs['threshold'])
-        data_norm_stretched[inds] = alpha * ( (data_norm[inds] - thrs['peak_low']) / (thrs['threshold'] - thrs['peak_low']) )**n
-
-        inds = (data_norm >= thrs['threshold']) & (data_norm < thrs['peak_high'])
-        data_norm_stretched[inds] = 1 - alpha * ( (data_norm[inds] - thrs['peak_high']) / (thrs['threshold'] - thrs['peak_high']) )**n
-
-        self.data_norm[:,ind_features] = data_norm_stretched
-    def normalize(self, feature, norm_parameters, **kwargs):
+    def normalize(self, feature, transform_function):
         """
         Parameters
         ---------
-        feature:    str
-        mode: str
-            See code for definition of the implemented normalization mode
-        normalize_bias: float
-        normalize_factor: float
-            These are parameters that can be used to tune the normalization functions
+        feature: str
+        transform_function: a function with parameters the feature and the data and that returns the normalized data
         """
-        ind_features = self.get_index_features([feature])
-        if kwargs['mode'] == 'min':
-            self.data_norm[:,ind_features] = (self.data[:,ind_features] - norm_parameters[feature] + 1.0)
-        elif kwargs['mode'] == 'min_max':
-            self.data_norm[:,ind_features] = (self.data[:,ind_features] - norm_parameters[feature][0]) / (norm_parameters[feature][1] - norm_parameters[feature][0])
-        elif kwargs['mode'] == 'mean_std':
-            self.data_norm[:,ind_features] = (self.data[:,ind_features] - norm_parameters[feature][0]) / norm_parameters[feature][1]
-        elif kwargs['mode'] == 'arcsinh':
-            dummy = (self.data[:,ind_features] - norm_parameters[feature][0])
-            self.data_norm[:,ind_features] = np.arcsinh( dummy /  norm_parameters[feature][1])
-        elif kwargs['mode'] == 'log10':
-            self.data_norm[:,ind_features] = np.log10((self.data[:,ind_features] - norm_parameters[feature]) + 1.0)
-        elif kwargs['mode'] == 'sqrt':
-            self.data_norm[:,ind_features] = np.sqrt((self.data[:,ind_features] - norm_parameters[feature]))
-        elif kwargs['mode'] == 'sigmoid':
-            dummy = (self.data[:,ind_features] - norm_parameters[feature][0]) / norm_parameters[feature][1]
-            self.data_norm[:,ind_features] = 1.0 / ( 1.0 + np.exp(-dummy) )
-        elif kwargs['mode'] == 'binary':
-            self.data_norm[:,ind_features] = (self.data[:,ind_features] > norm_parameters[feature][0])
-        elif kwargs['mode'] == 'logicle':
-            L = logicleScale.LogicleScale(self.data[:,ind_features])
-            self.data_norm[:,ind_features] = L.calculate_y(
-                    T = norm_parameters[feature][0], 
-                    M = norm_parameters[feature][1],
-                    A = norm_parameters[feature][2], 
-                    p = norm_parameters[feature][3],
-                    W = norm_parameters[feature][4])
+        ind_feature = self.get_index_features([feature])
+        if self.has_norm(feature):
+            ind_norm_feature = self.get_index_norm_features([feature])[0]
+            self.data_norm[:,ind_norm_feature] = transform_function(feature, self.data[:,ind_feature]).flatten()
         else:
-            raise NotImplementedError('ERROR normalization mode {0:s} not implemented'.format(kwargs['mode']))
+            self.data_norm = np.hstack((self.data_norm, transform_function(feature, self.data[:,ind_feature])))
+            self.features_norm.append(feature)
     def delete_samples(self, inds):
+        """
+        Remove samples
+        """
         self.data = np.delete(self.data, inds, axis = 0)
         self.data_norm = np.delete(self.data_norm, inds, axis = 0)
-    def show(self, feature_0, feature_1,  stride = 0, title = None, pdf = None):
+    def show(self, features,  stride = 0, title = None, pdf = None):
         """
-        feature_0: str
-        feature_1: str
+        features: list
         stride: int
         title: str
         """
+        if len(features) != 2:
+            print('WARNING: show works only for 2 features')
+            return
         if stride == 0:
             stride = max(int(self.get_n_samples() / 10000),1)
-        data = self.get_data_features([feature_0, feature_1])
-        if self.has_norm():
-            data_norm = self.get_data_norm_features([feature_0, feature_1])
+        data = self.get_data_features([features[0], features[1]])
+        if self.has_norm(features):
+            data_norm = self.get_data_norm_features([features[0], features[1]])
         f = plt.figure()
-        if self.has_norm():
+        if self.has_norm(features): 
             ax1 = f.add_subplot(211)
             ax2 = f.add_subplot(212)
         else:
             ax1 = f.add_subplot(111)
         plt.sca(ax1)
         ax1.plot(data[::stride,0], data[::stride,1],',k')
-        plt.ylabel(feature_1)
-        if self.has_norm():
+        plt.ylabel(features[1])
+        if self.has_norm(features): 
             plt.sca(ax2)
             ax2.plot(data_norm[::stride,0], data_norm[::stride,1],',k')
-            plt.xlabel(feature_0)
-            plt.ylabel(feature_1)
+            plt.xlabel(features[0])
+            plt.ylabel(features[1])
         else:
-            plt.xlabel(feature_0)
+            plt.xlabel(features[0])
         if title is not None:
             plt.sca(ax1)
             plt.title(title)
@@ -1142,47 +1114,21 @@ if __name__ == '__main__':
     print('---------------')
 
     pdf = PdfPages('./test.pdf')
-
-    # Create a collection of experiments
-    C = Collection()
-    # Read data for 1st experiment
-    #E1 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
-    E1 = Experiment(file_name = '../examples/data/flowc/levine_13dim.fcs', mode = 'all')
-    # Add data to collection
-    C.add_experiment(E1, condition = 'random_set_1') #, labels = E1.get_data_features(['label']))
-    # Read data for 2nd experiment
-    #E2 = Experiment(file_name = '../examples/data/flowc/blood.fcs', mode = 50000)
-    # Add data to collection
-    #C.add_experiment(E2, condition = 'random_set_2')
-    # Choose two features
-    #feature_0 = 'CD38'
-    #feature_1 = 'CD95'
-    features = ['CD34' , 'CD38', 'CD90']
-    # Remove nan from all features
-    C.clean_samples()
-    # Compensate data
-    #C.compensate()
-    # Normalize data
-    #C.normalize(features = [feature_0, feature_1], mode = 'arcsinh')
-    #C.normalize(features = [feature_0, feature_1], mode = 'logicle')
-    C.normalize(features = features, mode = 'logicle')
-    C.show_histogram(list_features = features, pdf = pdf)
-    # Show experiment E1
-    #E1.show(feature_0, feature_1, pdf = pdf)
-    # Show all experiments in the collection
-    #C.show(feature_0, feature_1, pdf = pdf)
-    # Show scattered data, colored according to experiment index
-    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'experiments', pdf = pdf)
-    # Show scattered data, colored according to condition index
-    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'conditions', pdf = pdf)
-    # Show scattered data, colored according to labels
-    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'labels', pdf = pdf)
-    # Show scattered data, colored according to density
-    #C.show_scatter([feature_0, feature_1], stride = 0, mode = 'density', pdf = pdf)
-    # Show cluster distribution
-    #C.show_distributions([feature_0, feature_1], pdf = pdf)
-    #C.labels = C.get_data_features(['label'])
-    #print(np.shape(C.get_data_features(['label'])))
-    #C.show_distributions(features, pdf = pdf)
-
+    C = Collection() # Create a collection of experiments
+    E1 = Experiment(file_name = '../examples/data/flowc/levine_13dim.fcs', mode = 50000) # Read data for 1st experiment
+    C.add_experiment(E1, condition = 'random_set_1') # Add data to collection
+    E2 = Experiment(file_name = '../examples/data/flowc/levine_13dim.fcs', mode = 50000) # Read data for 2nd experiment
+    C.add_experiment(E2, condition = 'random_set_2') # Add data to collection
+    features = ['CD45','CD20','CD38'] # Choose some features
+    C.clean_samples() # Remove nan from all features
+    #C.compensate() # Compensate data
+    C.normalize(features = features, mode = 'logicle') # Normalize data
+    E1.show(features[1:3], pdf = pdf) # Show a single experiment
+    C.show(features[1:3], stride = 0, mode = 'experiments', pdf = pdf) # Show scattered data, colored according to experiment index
+    C.show(features[1:3], stride = 0, mode = 'conditions', pdf = pdf) # Show scattered data, colored according to condition index
+    C.show(features[1:3], stride = 0, mode = 'density', pdf = pdf) # Show scattered data, colored according to density
+    C.show(features[1:3], stride = 0, mode = C.get_data_features(['label']), pdf = pdf) # Show scattered data, colored using an np.ndarray
+    C.show(features[1:3], stride = 0, mode = 'density', inds_inside = C.get_data_features(['label']) == 1, pdf = pdf) # Show scattered data, colored according to density
+    C.show_histogram(pdf = pdf) # Show histograms for all the experiments in the collection
+    C.show_distributions(features, C.get_data_features(['label']), pdf = pdf) # Show cluster distribution
     pdf.close()
