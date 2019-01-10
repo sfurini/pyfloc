@@ -18,13 +18,11 @@ class PyFloc(object):
     """
     Attributes
     ----------
-    experiments: Collection
     prefix: str
         Prefix for output files
-    counter_gating: int
-        Internal variable to keep track of the gating steps performed
-    counter_clustering: int
-        Internal variable to keep track of the clustering steps performed
+    experiments: object of class Collection
+    counter: int
+        Internal variable to keep track of the steps performed
     features_synonym:   dict
         key:    str
             Name of the feature
@@ -36,11 +34,12 @@ class PyFloc(object):
         2:  + all the figures
     """
     def __init__(self, prefix = 'pyfloc', verbose = 0):
-        self.prefix = prefix # all output files will start like this
+        self.prefix = prefix # all output files start like this
         self.experiments = data.Collection() # initialize a new collection of experiments
         self.counter = 0 # counter for gating steps
         self.features_synonym = {} # alternative names for features
-        self.features_last_clustering = None # used to memorize the set of features used for the last clustering step, it's useful if afterwards there's a gating step
+        self.features_last_clustering = None # used to memorize the set of features used for the last clustering step
+        self.cluster = None # used to memorize the last clustering object
         self.last_gate = None # used to memorize the last contour
         self.clusters_2_keep = None
         self.gate_mode = None # used to memorize if gating was in linear or log scale
@@ -134,8 +133,8 @@ class PyFloc(object):
                                 self.counter += 1
                             else:   #--- Everything else is considered a definition of feature synonyms
                                 self.features_synonym[key] = values
-    def read_fcs(self, file_name, mode, conditions = 'undefined'):
-        print('Reading data from {0:s} with mode {1:s} conditions {2:s}'.format(file_name, str(mode), conditions))
+    def read_fcs(self, file_name, mode, conditions = 'unknown'):
+        print('Reading data from {0:s} with reading mode {1:s} - condition: {2:s}'.format(file_name, str(mode), conditions))
         experiment = data.Experiment(file_name, mode = mode)
         self.experiments.add_experiment(experiment, conditions)
     def clean_samples(self, features, mode):
@@ -145,36 +144,33 @@ class PyFloc(object):
         self.experiments.remove_outliers(features, max_n_std, self.verbose)
     def normalize(self, features, **kwargs):
         self.experiments.normalize(features, self.verbose, **kwargs)
-    def fit_cluster(self, features, mode = None, verbose = None, **kwargs):
+    def fit_cluster(self, features, mode, labels = [], verbose = None, **kwargs):
         """
         Parameters
         ----------
+        features: list of str
         mode: str
             Clustering algorithm
-        features: list
-            values: str
-                The features to use for clustering
+        labels: list / np.ndarray
+        verbose: int
+            0-1: none
+            >1: figures in pdf
         """
-        #--- Use default verbosity if not defined
+        #--- Use default verbosity, if not defined
         if verbose is None:
             verbose = self.verbose
         #--- Get normalized data
         data_norm = self.experiments.get_data_norm_features(features)
         self.features_last_clustering = deepcopy(features)
         #--- Get reference labels, if they exist
-        if 'label' in self.experiments.get_features():
-            labels = [self.experiments.get_data_features(['label']).flatten(),]
-        else:
-            labels = []
-        #--- Define mode, if None
-        if mode is None:
-            if self.experiments.get_n_samples() < 50000:
-                mode = 'DP'
-            else:
-                mode = 'DPKNN'
+        if  len(labels):
+            if len(labels) != self.experiments.get_n_samples():
+                raise ValueError('ERROR: wrong number of labels')
+        if isinstance(labels, np.ndarray):
+            labels = [labels.flatten(),]
         #--- Fit clustering mode
         if verbose > 1:
-            pdf = PdfPages('{0:s}_fit_cluster_{1:d}.pdf'.format(self.prefix, self.counter))
+            pdf = PdfPages('{0:s}_{1:d}_fit_cluster.pdf'.format(self.prefix, self.counter))
         else:
             pdf = None
         delta_energies = None
@@ -194,40 +190,70 @@ class PyFloc(object):
         else:
             raise NotImplementedError('ERROR: mode {0:s} not implemented'.format(mode))
         if verbose > 1:
+            self.counter += 1
             pdf.close()
         return delta_energies
     def predict_cluster(self, verbose = None, **kwargs):
-        #--- Use default verbosity if not defined
+        """
+        Parameters
+        ----------
+        verbose: int
+            0-1: none
+            >1: (output of clustering) + (pdf figures of clustering)
+        """
+        #--- Use default verbosity, if not defined
         if verbose is None:
             verbose = self.verbose
-        #--- Run clustering
+        #--- Open pdf file, if needed
         if verbose > 1:
-            pdf = PdfPages('{0:s}_cluster_{1:d}.pdf'.format(self.prefix, self.counter))
+            pdf = PdfPages('{0:s}_{1:d}_predict_cluster.pdf'.format(self.prefix, self.counter))
         else:
             pdf = None
+        #--- Run clustering
         self.cluster.fit_predict(pdf = pdf, **kwargs)
-        #--- Save the resuls of clustering
-        self.experiments.labels = self.cluster.dtrajs[0] # experiments.labels is the one used for plotting
-        self.experiments.add_feature('label_'+'_'.join(self.features_last_clustering), self.experiments.labels) # this is useful when combining different clustering strategies (e.g.: several 1D clustering to mimik a gating strategy)
+        #--- Save the results of clustering
+        self.experiments.add_feature('label_'+'_'.join(self.features_last_clustering), self.cluster.dtrajs[0]) # this is useful when combining different clustering strategies (e.g.: several 1D clustering to mimik a gating strategy)
         #--- Plotting and outputs
-        if verbose > 0:
+        if verbose > 1:
             self.cluster.show(pdf, plot_maps = (len(self.features_last_clustering) == 2), plot_hists = (len(self.features_last_clustering) == 1))
             print(self.cluster)
-        if verbose > 1:
-            self.experiments.show_distributions(features = self.features_last_clustering, pdf = pdf)
+            self.counter += 1
             pdf.close()
-    def combine_clustering(self,feature0,feature1):
-        #-- returns a dictionary which contains the indexes of the combinations of density peaks
-        # i.e (0,0):[1,2,3,4] means that 1,2,3,4 are the indexes of the elements which have the lowest peak in feature0 and feature1
-        return self.experiments.combine_clustering(feature0,feature1)
-    def combine_all_clustering(self, dict_features):
-        return self.experiments.combine_all_clustering(dict_features)
-        #input: che cosa vuoi: es {'cd3' : 0 (basso) o 1 (alto), 'cd4': 0, ...}
-        #solo su variabili binarizzabili
-        #restituisce tutti gli indici delle cellule che hanno quelle caratteristiche
-        #es per cd11b monocyte: cd33+, cd3-, cd4-, cd8-, cd19-
-        #strategy = {'CD33':1, 'CD3':0, 'CD4':0, 'CD8':0 , 'CD19':0}
-    ### MM fine 
+    def combine_clustering(self, strategy, labels = [], verbose = None):
+        """
+        Parameters
+        ----------
+        strategy: dict
+            key: str
+            value: int
+        """
+        #--- Use default verbosity, if not defined
+        if verbose is None:
+            verbose = self.verbose
+        #--- Get reference labels, if they exist
+        if  len(labels):
+            if len(labels) != self.experiments.get_n_samples():
+                raise ValueError('ERROR: wrong number of labels {0:d} Vs {1:d}'.format(len(labels), self.experiments.get_n_samples()))
+        if isinstance(labels, np.ndarray):
+            labels = [labels.flatten(),]
+        #--- Retrieving data from previous clustering
+        clustering_features = []
+        target = []
+        for feature in strategy.keys():
+            if strategy[feature] >= 0:
+                clustering_features.append('label_{0:s}'.format(feature))
+                target.append(int(strategy[feature]))
+        data = self.experiments.get_data_features(clustering_features)
+        traj = []
+        for i_sample in range(self.experiments.get_n_samples()):
+            if (list(data[i_sample].astype(int))) == target:
+                traj.append(1)
+            else:
+                traj.append(0)
+        #--- Running clustering
+        self.cluster = cluster.Unique(trajs = [np.array(traj).astype(int).reshape(-1,1),], labels = labels, verbose = verbose)
+        self.cluster.fit_predict()
+        print(self.cluster)
     def draw_gate(self, target, mode = 'cherry', clusters_2_keep = [], verbose = None):
         #--- Use default verbosity if not defined
         if verbose is None:
@@ -289,6 +315,16 @@ class PyFloc(object):
         if self.verbose > 1:
             for conditions in self.experiments.get_conditions():
                 print('\tconditions {0:s} = {1:d}'.format(conditions,self.experiments.get_n_samples(conditions)))
+    def show(self, *args, **kwargs):
+        pdf = PdfPages('{0:s}_{1:d}.pdf'.format(self.prefix,self.counter))
+        if 'features' not in kwargs.keys():
+            raise ValueError('ERROR: missing features for show method')
+        if len(kwargs['features']) == 1:
+            self.experiments.show_histogram(*args, **kwargs, pdf = pdf)
+        if len(kwargs['features']) == 2:
+            self.experiments.show(*args, **kwargs, pdf = pdf)
+        self.counter += 1
+        pdf.close()
     def write(self, file_name = None):
         if file_name is None:
             file_name = '{0:s}_{1:d}.pk'.format(self.prefix, self.counter)

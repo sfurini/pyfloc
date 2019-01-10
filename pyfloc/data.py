@@ -96,33 +96,6 @@ class Collection(object):
         for i_experiment, experiment in enumerate(self.experiments):
             i_start, i_end = self.get_boundaries(i_experiment)
             experiment.add_feature(feature, data[i_start:i_end])
-    def combine_clustering(self, feature0, feature1):
-        feature_labels_0 = "labels_"+str(feature0)
-        feature_labels_1 = "labels_"+str(feature1)
-        combo_experiment = []
-        combo = {}
-        for i_experiment, experiment in enumerate(self.experiments):
-            data0 = experiment.get_data_features(feature_labels_0)
-            data1 = experiment.get_data_features(feature_labels_1)
-            # ritorna il numero di label in comune. Es (0,0): [2,3,5,6] significa che le labels [2,3,5,6] sono basse sia nella feature 0 che nella feature 1
-            for i_cluster_0 in np.unique(data0):
-                for i_cluster_1 in np.unique(data1): 
-                    combo[(i_cluster_0,i_cluster_1)] = np.unique(np.array(list((set(np.where(data0 == i_cluster_0)[0]).intersection(np.where(data1==i_cluster_1)[0])))))
-            combo_experiment.append(combo)
-        return combo
-    def combine_all_clustering(self, dict_features):
-        combo_experiment = []
-        for i_experiment, experiment in enumerate(self.experiments):
-            combo = None 
-            for feature_label in dict_features.keys():
-                data = experiment.get_data_features("labels_"+feature_label).flatten()
-                i_cluster = np.where(data == dict_features[feature_label])[0]
-                if combo is not None:
-                    combo = np.unique(np.array(list(set(i_cluster).intersection(combo))))
-                else:
-                    combo = i_cluster
-            combo_experiment.append(combo)    
-        return combo_experiment
     def get_n_conditions(self):
         return len(set(self.conditions))
     def get_conditions(self):
@@ -317,7 +290,8 @@ class Collection(object):
         print('Running feature normalization with mode {0:s}'.format(kwargs['mode']))
         for feature in features:
             if kwargs['mode'] == 'min':
-                self.normalize_parameters[feature] = self.get_min_feature(feature)
+                #self.normalize_parameters[feature] = [self.get_min_feature(feature), self.get_mean_feature(feature)]
+                self.normalize_parameters[feature] = [self.get_min_feature(feature), settings.numerical_precision]
             elif kwargs['mode'] == 'min_max':
                 min_feature = self.get_min_feature(feature)
                 max_feature = self.get_max_feature(feature)
@@ -327,7 +301,8 @@ class Collection(object):
                 std_feature = self.get_std_feature(feature)
                 self.normalize_parameters[feature] = [mean_feature, std_feature]
             elif kwargs['mode'] == 'log10':
-                self.normalize_parameters[feature] = self.get_min_feature(feature)
+                self.normalize_parameters[feature] = [self.get_min_feature(feature), 0.0 ]#settings.numerical_precision]
+                self.normalize_parameters[feature] = [0.0, 0.0 ]#settings.numerical_precision]
             elif kwargs['mode'] == 'sqrt':
                 self.normalize_parameters[feature] = self.get_min_feature(feature)
             elif kwargs['mode'] == 'arcsinh':
@@ -362,7 +337,7 @@ class Collection(object):
             One dimensional array with data along that feature
         """
         if self.normalize_mode[feature] == 'min':
-            return data - self.normalize_parameters[feature] + 1.0
+            return data - self.normalize_parameters[feature][0] + self.normalize_parameters[feature][1]
         elif self.normalize_mode[feature] == 'min_max':
             return (data - self.normalize_parameters[feature][0]) / (self.normalize_parameters[feature][1] - self.normalize_parameters[feature][0]) 
         elif self.normalize_mode[feature] == 'mean_std':
@@ -370,8 +345,8 @@ class Collection(object):
         elif self.normalize_mode[feature] == 'arcsinh':
             return np.arcsinh((data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1])
         elif self.normalize_mode[feature] == 'log10':
-            dummy = (data - self.normalize_parameters[feature])
-            return np.log10(dummy + 1.0)
+            dummy = (data - self.normalize_parameters[feature][0])
+            return np.log10(dummy + self.normalize_parameters[feature][1])
         elif self.normalize_mode[feature] == 'sqrt':
             dummy = data - self.normalize_parameters[feature]
             return np.sqrt(dummy)
@@ -401,7 +376,7 @@ class Collection(object):
         if isinstance(data,list):
             data = np.array(data)
         if self.normalize_mode[feature] == 'min':
-            return data + self.normalize_parameters[feature] - 1.0
+            return data + self.normalize_parameters[feature][0] - self.normalize_parameters[feature][1]
         elif self.normalize_mode[feature] == 'min_max':
             return data * (self.normalize_parameters[feature][1] - self.normalize_parameters[feature][0]) + self.normalize_parameters[feature][0]
         elif self.normalize_mode[feature] == 'mean_std':
@@ -410,7 +385,7 @@ class Collection(object):
             return self.normalize_parameters[feature][1]*np.sinh(data)
         elif self.normalize_mode[feature] == 'log10':
             dummy = np.power(10.0, data)
-            return dummy - 1.0 + self.normalize_parameters[feature] 
+            return dummy - self.normalize_parameters[feature][1] + self.normalize_parameters[feature][0]
         elif self.normalize_mode[feature] == 'sqrt':
             dummy = np.power(data,2.0)
             return dummy + self.normalize_parameters[feature]
@@ -486,6 +461,14 @@ class Collection(object):
             x = float(value[2:])
             inds_delete = np.where(data <= x)[0]
             mode = ' <= {0:f}'.format(x)
+        elif value[0:2] == '==':
+            x = float(value[2:])
+            inds_delete = np.where(data == x)[0]
+            mode = ' == {0:f}'.format(x)
+        elif value[0:2] == '!=':
+            x = float(value[2:])
+            inds_delete = np.where(data != x)[0]
+            mode = ' != {0:f}'.format(x)
         else:
             raise NotImplementedError('ERROR: method {0:s} does not exist for clean_samples'.format(value))
         if len(inds_delete):
@@ -643,7 +626,7 @@ class Collection(object):
             plt.close()
         else:
             self.fis = graphics.AxesScaleInteractor(f)
-    def show_histogram(self, pdf, features = [], nbins = 100):
+    def show_histogram(self, features = [], nbins = 100, pdf = None):
         """
         Plot 1D histograms
 
@@ -689,8 +672,11 @@ class Collection(object):
                 ax2.set_xticklabels(x_ticklabels)
             plt.sca(ax1)
             plt.title(feature)
-            pdf.savefig()
-            plt.close()
+            if pdf is not None:
+                pdf.savefig()
+                plt.close()
+            else:
+                plt.show()
     def show_distributions(self, features, labels, clusters_order = None, pdf = None):
         """
         Parameters
@@ -856,7 +842,7 @@ class Collection(object):
             pickle.dump(self, fout)
     def __str__(self):
         if self.get_n_experiments() == 0:
-            return 'Empty pyfloc object'
+            return 'No experimental data'
         output  = 'Number of experiments: {0:d}\n'.format(self.get_n_experiments())
         output += 'Number of sample: {0:d}\n'.format(self.get_n_samples())
         output += 'Number of common features: {0:d}\n'.format(len(self.get_features()))

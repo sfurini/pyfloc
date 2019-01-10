@@ -46,6 +46,8 @@ class Cluster(object):
         Each element of the list is a np.ndarray with
             shape: <number of samples>
             values: label of the sample
+        The labels are always converted into the range 0:n_labels
+        Nan values are converted to -1
     trajs_merged : np.ndarray
         Shape: <number of samples> x <number of features>
         All the trajectories combined into a single array
@@ -82,7 +84,7 @@ class Cluster(object):
         for labels_traj in labels:
             for label in labels_traj:
                 if not np.isnan(label):
-                    set_labels.add(label)
+                    set_labels.add(int(label))
         list_labels = list(set_labels)
         list_labels.sort()
         dict_labels = {}
@@ -359,7 +361,19 @@ class Cluster(object):
             else:
                 dist = pairwise_distances(self.trajs_merged)
         elif mode == 'logarithmic':
-            dist = np.abs( np.log2(self.trajs_merged.reshape(1,-1)) - np.log2(self.trajs_merged.reshape(-1,1)) )
+            # CANE
+            dist_dims = np.zeros((self.n_dims(),self.n_frames(),self.n_frames()))
+            for i_dim in range(self.n_dims()):
+                dist_dims[i_dim,:,:] = np.abs( np.log2(self.trajs_merged[:,i_dim].reshape(-1,1)) - np.log2(self.trajs_merged[:,i_dim].reshape(1,-1)) )
+            dist = np.sum(dist_dims, axis = 0)
+            #dist = np.abs( np.log2(self.trajs_merged.reshape(-1,1)) - np.log2(self.trajs_merged.reshape(1,-1)) )
+            #dist = np.abs( (self.trajs_merged.reshape(-1,1) - self.trajs_merged.reshape(1,-1)) / self.trajs_merged.reshape(-1,1) )
+            #dist = (self.trajs_merged.reshape(-1,1) / self.trajs_merged.reshape(1,-1))
+            #dist = np.abs( (self.trajs_merged.reshape(-1,1) - self.trajs_merged.reshape(1,-1)) / (0.5*(self.trajs_merged.reshape(-1,1) + self.trajs_merged.reshape(-1,1))) )
+            #num = (self.trajs_merged.reshape(-1,1) - self.trajs_merged.reshape(1,-1))
+            #den = (0.5*(self.trajs_merged.reshape(-1,1) + self.trajs_merged.reshape(-1,1)))
+            #dist = np.abs( num / den )
+            #dist[np.isnan(dist)] = 0.0
         elif mode == 'angular':
             scalar = np.dot(self.trajs_merged, self.trajs_merged.transpose())
             teta = (scalar / np.sqrt(scalar.diagonal().reshape(scalar.shape[0],1)) / np.sqrt(scalar.diagonal().reshape(1,scalar.shape[0])))
@@ -368,7 +382,7 @@ class Cluster(object):
         else:
             raise NotImplementedError('Method {0:s} does not exist'.format(mode))
         return dist
-    def score(self, m_dtrajs = None, n_clusters = None ):
+    def score(self, m_dtrajs = None, n_clusters = None):
         """
         Calculate the score of the clustering algorithm by comparing the clustering results with reference labels
         """
@@ -522,20 +536,29 @@ class Cluster(object):
         if plot_hists:
             for i_traj, traj in enumerate(self.trajs):
                 traj = self.trajs[i_traj]
+                if self.dtrajs:
+                    dtraj = self.dtrajs[i_traj]
                 f = plt.figure()
                 for i_dim in range(self.n_dims()):
                     ax = f.add_subplot(self.n_dims(),1,i_dim+1)
                     if i_dim == 0:
                         plt.title('Trajectory '+str(i_traj))
-                    h,e = np.histogram(traj, bins = 100)
+                    h,e = np.histogram(traj, bins = 100, normed = True)
                     b = 0.5*(e[1:] + e[:-1])
                     ax.plot(b,h,'-b', label = None)
+                    ib = np.argmin(np.abs(b - np.mean(traj))) 
+                    ax.plot(np.mean(traj), h[ib], 'xb', label = None)
+                    ax.plot(e[np.argmax(h)], np.max(h), '+b', label = None)
                     if self.clusters_analogic.size > 0:
                         for i_cluster in range(self.n_clusters()):
                             ib = np.argmin(np.abs(b -self.clusters_analogic[i_cluster,i_dim])) 
                             ax.plot(self.clusters_analogic[i_cluster,i_dim], h[ib], 'o', label = 'cluster {0:d}'.format(i_cluster))
+                            hc,ec = np.histogram(traj[dtraj == i_cluster], bins = e, normed = True)
+                            ax.plot(b,hc,'-', label = 'cluster {0:d} = {1:f}'.format(i_cluster,100.0*np.sum(dtraj == i_cluster)/len(dtraj)))
                 plt.legend()
                 if pdf is not None:
+                    pdf.savefig()
+                    plt.xscale('log')
                     pdf.savefig()
                     plt.close(f)
         if plot_maps:
@@ -851,20 +874,22 @@ class DensityPeaks(ClusterSKlearn):
         self.manual_clusters_selector = None
         self.kernel_radius = -1.0
         self.name = 'Density Peaks'
-    def get_energy(self, kernel_radius, n_stds_delta, ns_clusters, pdf, n_gaussians = 1, kernel = 'gaussian'):
+    def get_energy(self, kernel_radius, n_stds_delta, ns_clusters, pdf, n_gaussians = 1, kernel = 'gaussian', n_bins_rho = 100):
         """
         get_energy finds the best candidates as cluster centers and return a cost function which is maximum when the clusters are better separated from each other (ideally...)
 
-        kernel_radius   float/str
+        kernel_radius: float/str
             If str, it needs to start with p, and the remaining part defines which percentile of the distances among samples is used to define the kernel radius
             If float, this is the distance used to define the kernel radius
-        n_stds_delta    float
-        n_gaussians int
+        n_stds_delta: float
+        n_gaussians: int
             Number of gaussians used to fit delta as a function of rho in the rho-delta plot
         kernel  str
             Which kernel is used to calculate the rho-delta plot. Possible values:
                 * square
                 * gaussian
+        n_bins_rho: int
+            Number of bins used to distrectize the rho_norm axis
 
         Return
         ------
@@ -902,16 +927,51 @@ class DensityPeaks(ClusterSKlearn):
             ns_clusters = [int(n_clusters) for n_clusters in ns_clusters] # to be sure that they're all integers
         #--- Computing density (rho)
         if kernel == 'gaussian':
+            # CANE
+            from scipy.stats import skewnorm
+
+            #a = 0.0
+            #x = self.dist/self.kernel_radius
+            #kernel_matrix = np.zeros((len(self.trajs_merged),len(self.trajs_merged)))
+            #thrs = 0.5*(np.max(self.trajs_merged) + np.min(self.trajs_merged))
+            ## x < mean - samples above
+            #inds = (self.trajs_merged.reshape(-1,1) < thrs) * (self.trajs_merged.reshape(-1,1) < self.trajs_merged.reshape(1,-1))
+            #kernel_matrix[inds] = skewnorm.pdf(x[inds], -a)
+            ## x < mean - samples below
+            #inds = (self.trajs_merged.reshape(-1,1) < thrs) * (self.trajs_merged.reshape(-1,1) > self.trajs_merged.reshape(1,-1))
+            #kernel_matrix[inds] = skewnorm.pdf(x[inds], -a)
+            ## x > mean - samples above
+            #inds = (self.trajs_merged.reshape(-1,1) > thrs) * (self.trajs_merged.reshape(-1,1) < self.trajs_merged.reshape(1,-1))
+            #kernel_matrix[inds] = skewnorm.pdf(x[inds], a)
+            ## x > mean - samples below
+            #inds = (self.trajs_merged.reshape(-1,1) > thrs) * (self.trajs_merged.reshape(-1,1) > self.trajs_merged.reshape(1,-1))
+            #kernel_matrix[inds] = skewnorm.pdf(x[inds], a)
+            #kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
+
+            #kernel_matrix = np.exp(-np.power(self.dist/self.kernel_radius,2.0))
+            #thrs = 0.5*(np.max(self.trajs_merged) + np.min(self.trajs_merged))
+            #kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
+            #sample_below_mean_pair_above = (self.trajs_merged.reshape(-1,1) < thrs) * (self.trajs_merged.reshape(-1,1) < self.trajs_merged.reshape(1,-1))
+            #sample_above_mean_pair_below = (self.trajs_merged.reshape(-1,1) > thrs) * (self.trajs_merged.reshape(-1,1) > self.trajs_merged.reshape(1,-1))
+            #samples_to_keep = sample_below_mean_pair_above + sample_above_mean_pair_below
+            #kernel_matrix[np.logical_not(samples_to_keep)] = 0.0
+
             kernel_matrix = np.exp(-np.power(self.dist/self.kernel_radius,2.0))
             kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
+
+            #dist_average = np.abs(np.log2(self.trajs_merged.reshape(1,-1)) - np.log2(np.mean(self.trajs_merged))) * np.ones((len(self.trajs_merged),len(self.trajs_merged)))
+            #module_matrix = np.exp(-np.power(dist_average/(0.1*np.max(dist_average)),2.0))
+            #kernel_matrix *= module_matrix
+
+
         elif kernel == 'square':
             kernel_matrix = (self.dist < self.kernel_radius)
+            kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
         else:
             raise ValueError('ERROR: wrong kernel parameter')
         self.rho = np.sum(kernel_matrix, axis = 1)
         #--- Computing distances from higher density samples (delta)
         ordrho = np.argsort(self.rho)[-1::-1]
-        rho_sorted = self.rho[ordrho]
         self.nneigh[ordrho[0]] = ordrho[0] # arbitrary convention: for the point with highest density, the neighbour at with higher density is itself
         self.delta[ordrho[0]] = np.max(self.dist[ordrho[0],:]) # arbitrary convention: for the point with highest density set delta to the maximum distance of this point from other samples
         for i in range(1,self.n_frames()):
@@ -941,9 +1001,25 @@ class DensityPeaks(ClusterSKlearn):
         rho_norm_log = np.log10(rho_norm)
         delta_norm_log = np.log10(delta_norm)
         inds_finite = np.isfinite(rho_norm_log*delta_norm_log)
-        probs = np.inf*np.ones(self.n_frames())
-        probs_gmm = np.inf*np.ones(self.n_frames(), dtype = 'float64')
-        rho_edges = np.linspace(np.min(rho_norm_log[np.isfinite(rho_norm_log)]), np.max(rho_norm_log[np.isfinite(rho_norm_log)]), 20)
+        rho_norm_log_sorted = np.sort(rho_norm_log[np.isfinite(rho_norm_log)])
+        diff_rho_norm_log = rho_norm_log_sorted[1:] - rho_norm_log_sorted[:-1]
+        ind_gap = np.argmax(diff_rho_norm_log)
+        low_rho_cutoff = rho_norm_log_sorted[ind_gap+1]
+        rho_edges = np.linspace(low_rho_cutoff, np.max(rho_norm_log[np.isfinite(rho_norm_log)]), n_bins_rho)
+        #rho_edges = np.percentile(rho_norm_log_sorted[rho_norm_log_sorted > low_rho_cutoff], np.linspace(0,100,n_bins_rho))
+        rho_edges_new = []
+        i_prev = 0
+        i_next = 1
+        while i_prev < (len(rho_edges)-1):
+            inds_sample_bin = (rho_norm_log > rho_edges[i_prev]) * (rho_norm_log <= rho_edges[i_next]) * np.isfinite(rho_norm_log) * np.isfinite(delta_norm_log)
+            while np.sum(inds_sample_bin) < 10:
+                i_next += 1
+                inds_sample_bin = (rho_norm_log > rho_edges[i_prev]) * (rho_norm_log <= rho_edges[i_next]) * np.isfinite(rho_norm_log) * np.isfinite(delta_norm_log)
+            rho_edges_new.append(rho_edges[i_prev])
+            rho_edges_new.append(rho_edges[i_next])
+            i_prev = i_next
+            i_next += 1 
+        rho_edges = rho_edges_new
         ind_cluster_centers = [] # here, the indexes of the sample in low probability regions are stored
         #------ Calculate average values and standard deviations of deltas along rho
         means_deltas = []
@@ -951,11 +1027,12 @@ class DensityPeaks(ClusterSKlearn):
         rho_bins = []
         gaussian_mixture_models = []
         for ir in range(len(rho_edges)-1):
-            inds_sample_bin = (rho_norm_log > rho_edges[ir]) * (rho_norm_log <= rho_edges[ir+1]) * np.isfinite(rho_norm_log) * np.isfinite(delta_norm_log)
+            inds_sample_bin = (rho_norm_log > rho_edges[ir]) * (rho_norm_log <= rho_edges[ir+1]) * np.isfinite(rho_norm_log) * np.isfinite(delta_norm_log) # indexes of the samples in the bin
             if np.sum(inds_sample_bin) > 10: # check if there are enough samples in the bin
                 rho_bins.append(0.5*(rho_edges[ir]+rho_edges[ir+1]))
                 delta_in_bins = delta_norm_log[inds_sample_bin]
-                means_deltas.append(np.mean(delta_in_bins))
+                #means_deltas.append(np.mean(delta_in_bins))
+                means_deltas.append(np.median(delta_in_bins))
                 stds_deltas.append(np.std(delta_norm_log[inds_sample_bin]))
                 # ALTERNATIVE STRATEGY: percentile above mean
                 #std_deltas = np.percentile(delta_in_bins[delta_in_bins > means_deltas[-1]] - means_deltas[-1], 68.27)
@@ -996,9 +1073,18 @@ class DensityPeaks(ClusterSKlearn):
             plt.xlabel('rho_norm_log')
             plt.ylabel('delta_norm_log')
             pdf.savefig()
+            plt.xlim((low_rho_cutoff, 0.1))
+            pdf.savefig()
             plt.close() 
+        #--- CANE
+        h,e = np.histogram(self.trajs_merged.flatten(), bins = 100)
+        inds_below = self.trajs_merged.flatten() < e[np.argmax(h)-1]
         #------ Search for outliers
+        probs = np.inf*np.ones(self.n_frames())
+        probs_gmm = np.inf*np.ones(self.n_frames(), dtype = 'float64')
         for i_sample in range(self.n_frames()):
+            #if inds_below[i_sample]:
+            #    continue
             if delta_norm_log[i_sample] > f_means(rho_norm_log[i_sample]):
                 # 1) compute prob(delta > mu) assuming gaussian distributions
                 mu = f_means(rho_norm_log[i_sample])
@@ -1022,9 +1108,11 @@ class DensityPeaks(ClusterSKlearn):
                         #if probs_gmm[i_sample] == 0.0:
                         #    print('i_gauss = ',i_gauss,' mu = ',mu, ' sigma = ', sigma,'probs_gmm = ',probs_gmm[i_sample], ' hp = ',hp, ' delta = ', float(( (x - mu) / (np.sqrt(2)*sigma) )))
                     if probs_gmm[i_sample] == 0.0:
-                        print('WARNING: zero probability sample')
+                        #print('WARNING: zero probability sample')
                         probs_gmm[i_sample] = np.finfo(probs_gmm.dtype).min
-        probs[np.logical_not(np.isfinite(probs))] = 1.0 # in this way it gives no contribution to the logarithm
+        def_probs = np.isfinite(probs)
+        undef_probs = np.logical_not(def_probs)
+        probs[undef_probs] = 1.0 # in this way it gives no contribution to the logarithm
         probs[np.isnan(probs)] = 1.0 # in this way it gives no contribution to the logarithm
         probs[probs < settings.numerical_precision] = settings.numerical_precision
         probs_gmm[np.logical_not(np.isfinite(probs_gmm))] = 1.0 # in this way it gives no contribution to the logarithm
@@ -1039,9 +1127,10 @@ class DensityPeaks(ClusterSKlearn):
         if (self.verbose > 0) and (pdf is not None):
             f = plt.figure()
             ax1 = f.add_subplot(111)
-            ax1.scatter(rho_norm_log, delta_norm_log, c = energies)
+            ax1.scatter(rho_norm_log[def_probs], delta_norm_log[def_probs], c = energies[def_probs])
             plt.xlabel('rho_norm_log')
             plt.ylabel('delta_norm_log')
+            plt.xlim((low_rho_cutoff, 0.1))
             pdf.savefig()
             plt.close()
             if self.n_dims() == 1:
@@ -1055,12 +1144,13 @@ class DensityPeaks(ClusterSKlearn):
                 plt.ylabel('delta_norm_log')
                 pdf.savefig()
                 plt.close()
-        energies.sort()
         if isinstance(ns_clusters,int) or isinstance(ns_clusters,np.int64) : # if a number of clusters was chosen, return the ones in lowest probability regions
-            self.ind_cluster_centers = np.argsort(probs_gmm)[0:ns_clusters]
+            #self.ind_cluster_centers = np.argsort(probs_gmm)[0:ns_clusters]
+            self.ind_cluster_centers = np.argsort(energies)[-ns_clusters:]
         elif n_stds_delta is not None: # if n_stds_delta was defined return the ones above it
             self.ind_cluster_centers = ind_cluster_centers
         else: # in this case a list of clusters was provided, return the energies for all of them
+            energies.sort()
             delta_energies = np.empty(len(ns_clusters))
             cost = ((energies[1:] - energies[:-1])[-1::-1])
             for i, n_clusters in enumerate(ns_clusters):
@@ -1068,6 +1158,7 @@ class DensityPeaks(ClusterSKlearn):
                 #delta_energies[i] = np.cumsum((energies[1:] - energies[:-1])[-1::-1])[n_clusters-1]/n_clusters
                 #delta_energies[i] = ( np.mean(energies[-n_clusters:]) - np.mean(energies[-2*n_clusters:-n_clusters]) )
             return delta_energies
+        energies.sort()
         delta_energy = ( np.mean(energies[-len(self.ind_cluster_centers):]) - np.mean(energies[-2*len(self.ind_cluster_centers):-len(self.ind_cluster_centers)]) )  # this is equal to (energy cluster centers) - (energy other samples above average)
         return delta_energy
     def test_metrics(self, radii, n_stds_delta, ns_clusters = None, pdf = None):
@@ -1085,7 +1176,7 @@ class DensityPeaks(ClusterSKlearn):
         return metric_best
     def test_radii_clusters(self, radii, n_stds_delta, ns_clusters, pdf):
         """
-        Try all the percent values and return the one giving the higher energy
+        Test different parameters and return the one with highest scoring function
 
         For parameter definition see DensityPeaks.fit
 
@@ -1188,6 +1279,14 @@ class DensityPeaks(ClusterSKlearn):
     def search_cluster_centers(self, radii = 'p1.0', metric = 'euclidean', n_stds_delta = None, ns_clusters = None, manual_refine = False, pdf = None, **kwargs):
         """
         Test parameters and find the cluster centers
+
+        Parameters
+        ----------
+        radii: str / float
+        metric: str
+        n_stds_delta: None / float
+        ns_clusters: None / np.ndarray / list
+        manual_refine: bool
         """
         if metric == 'test':
             metric = self.test_metrics(radii, n_stds_delta, ns_clusters, pdf)
