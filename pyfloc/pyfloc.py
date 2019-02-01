@@ -111,7 +111,7 @@ class PyFloc(object):
                             elif key == 'features_normalize': #--- Normalize data
                                 reading_data = False
                                 features = [feature.strip() for feature in values.split(',')]
-                                self.normalize(features, **parameters)
+                                self.experiments.normalize(features, self.verbose, **parameters)
                             elif key == 'gating': #--- Run a gating step
                                 reading_data = False
                                 prob_target = float(values.split()[0].strip())
@@ -142,9 +142,7 @@ class PyFloc(object):
             self.experiments.clean_samples(feature, mode)
     def remove_outliers(self, features, max_n_std = 3.0):
         self.experiments.remove_outliers(features, max_n_std, self.verbose)
-    def normalize(self, features, **kwargs):
-        self.experiments.normalize(features, self.verbose, **kwargs)
-    def fit_cluster(self, features, mode, labels = [], verbose = None, **kwargs):
+    def fit_cluster(self, features, mode, labels = [], fuzzy = False, verbose = None, **kwargs):
         """
         Parameters
         ----------
@@ -175,11 +173,11 @@ class PyFloc(object):
             pdf = None
         delta_energies = None
         if mode == 'DP':
-            self.cluster = cluster.DensityPeaks(trajs = [data_norm,], labels = labels, verbose = verbose)
+            self.cluster = cluster.DensityPeaks(trajs = [data_norm,], labels = labels, fuzzy = fuzzy, verbose = verbose)
             delta_energies = self.cluster.search_cluster_centers(pdf = pdf, **kwargs)
         elif mode == 'DPKNN':
             self.cluster = cluster.TrainingKNN(trajs = [data_norm,], labels = labels, verbose = verbose)
-            self.cluster.fit(kwargs['ns_clusters'], percent = kwargs.get('percents',10.0), training_samples = kwargs.get('training_samples',10000), n_rounds = kwargs.get('n_rounds',100), pdf = pdf)
+            self.cluster.fit(pdf = pdf, **kwargs)
         elif mode == 'Unique':
             data_norm = data_norm.astype('int')
             self.cluster = cluster.Unique(trajs = [data_norm,], labels = labels, verbose = verbose)
@@ -213,13 +211,18 @@ class PyFloc(object):
         self.cluster.fit_predict(pdf = pdf, **kwargs)
         #--- Save the results of clustering
         self.experiments.add_feature('label_'+'_'.join(self.features_last_clustering), self.cluster.dtrajs[0]) # this is useful when combining different clustering strategies (e.g.: several 1D clustering to mimik a gating strategy)
+        if self.cluster.fuzzy: # if fuzzy clustering, save also the probabilities
+            for i_cluster in range(self.cluster.n_clusters):
+                if len(self.cluster.probs) != 1:
+                    raise ValueError('ERROR: wrong dimension for self.cluster.probs')
+                self.experiments.add_feature('prob_{0:d}_'.format(i_cluster)+'_'.join(self.features_last_clustering), self.cluster.probs[0][:,i_cluster]) 
         #--- Plotting and outputs
         if verbose > 1:
             self.cluster.show(pdf, plot_maps = (len(self.features_last_clustering) == 2), plot_hists = (len(self.features_last_clustering) == 1))
             print(self.cluster)
             self.counter += 1
             pdf.close()
-    def combine_clustering(self, strategy, labels = [], verbose = None):
+    def combine_clustering(self, strategy, labels = [], fuzzy = False, verbose = None):
         """
         Parameters
         ----------
@@ -230,7 +233,7 @@ class PyFloc(object):
         #--- Use default verbosity, if not defined
         if verbose is None:
             verbose = self.verbose
-        #--- Get reference labels, if they exist
+        #--- Check reference labels, if they exist
         if  len(labels):
             if len(labels) != self.experiments.get_n_samples():
                 raise ValueError('ERROR: wrong number of labels {0:d} Vs {1:d}'.format(len(labels), self.experiments.get_n_samples()))
@@ -239,11 +242,22 @@ class PyFloc(object):
         #--- Retrieving data from previous clustering
         clustering_features = []
         target = []
+        if fuzzy:
+            probs = np.ones((self.experiments.get_n_samples(),2))
+        else:
+            probs = None
         for feature in strategy.keys():
-            if strategy[feature] >= 0:
+            if strategy[feature] >= 0: # -1 means to not consider that feature
                 clustering_features.append('label_{0:s}'.format(feature))
                 target.append(int(strategy[feature]))
+                if fuzzy:
+                    prob = self.experiments.get_data_features(['prob_{0:d}_{1:s}'.format(target[-1], feature),]) # probability of the target cluster
+                    probs[:,1] *= prob.flatten()
         data = self.experiments.get_data_features(clustering_features)
+        if fuzzy:
+            probs[:,0] = 1.0 - probs[:,1]
+            probs = [probs,] # this is beacuase of the particular format of the class Cluster
+        #--- Convert into discrete trajectory: 1 == target / 0 != target
         traj = []
         for i_sample in range(self.experiments.get_n_samples()):
             if (list(data[i_sample].astype(int))) == target:
@@ -251,9 +265,41 @@ class PyFloc(object):
             else:
                 traj.append(0)
         #--- Running clustering
-        self.cluster = cluster.Unique(trajs = [np.array(traj).astype(int).reshape(-1,1),], labels = labels, verbose = verbose)
+        self.cluster = cluster.Unique(trajs = [np.array(traj).astype(int).reshape(-1,1),], labels = labels, list_samples = [[0,],[1,]], probs = probs, verbose = verbose)
         self.cluster.fit_predict()
         print(self.cluster)
+    def discover_cells(self, features, labels = [], verbose = None):
+        """
+        Parameters
+        ----------
+        strategy: dict
+            key: str
+            value: int
+        """
+        #--- Use default verbosity, if not defined
+        if verbose is None:
+            verbose = self.verbose
+        #--- Check reference labels, if they exist
+        if  len(labels):
+            if len(labels) != self.experiments.get_n_samples():
+                raise ValueError('ERROR: wrong number of labels {0:d} Vs {1:d}'.format(len(labels), self.experiments.get_n_samples()))
+        if isinstance(labels, np.ndarray):
+            labels = [labels.flatten(),]
+        #--- Retrieving data from previous clustering
+        clustering_features = []
+        for feature in features:
+            clustering_features.append('label_{0:s}'.format(feature))
+        data = self.experiments.get_data_features(clustering_features)
+        #--- Running clustering
+        self.cluster = cluster.Unique(trajs = [data,], labels = labels, verbose = verbose)
+        self.cluster.fit_predict()
+        #--- Plotting and outputs
+        print(self.cluster)
+        if verbose > 1:
+            pdf = PdfPages('{0:s}_{1:d}_discover_cells.pdf'.format(self.prefix, self.counter))
+            self.experiments.show_distributions(features = features, labels = self.cluster.dtrajs_merged, discrete_data = True, pdf = pdf)
+            self.counter += 1
+            pdf.close()
     def draw_gate(self, target, mode = 'cherry', clusters_2_keep = [], verbose = None):
         #--- Use default verbosity if not defined
         if verbose is None:

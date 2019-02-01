@@ -124,6 +124,9 @@ class Collection(object):
             if condition in conditions:
                 n_experiments += 1
         return n_experiments
+    @property
+    def n_samples(self):
+        return self.get_n_samples()
     def get_n_samples(self, conditions = None):
         """
         Count the number of samples
@@ -197,6 +200,8 @@ class Collection(object):
                 data_norm_experiment[:] = np.nan
             data_norm = np.vstack((data_norm, data_norm_experiment))
         return data_norm
+    def get_data_label_features(self, features):
+        return self.get_data_features(['label_{0:s}'.format(feature) for feature in features])
     def get_something_feature(self, feature, function, norm = False):
         if norm:
             data = self.get_data_norm_features([feature])
@@ -282,29 +287,34 @@ class Collection(object):
         """
         Parameters
         ----------
-        features list of str
+        features: list of str
             Name of the features to normalize
         """
         if 'mode' not in kwargs:
             kwargs['mode'] = 'min'
         print('Running feature normalization with mode {0:s}'.format(kwargs['mode']))
         for feature in features:
-            if kwargs['mode'] == 'min':
-                #self.normalize_parameters[feature] = [self.get_min_feature(feature), self.get_mean_feature(feature)]
-                self.normalize_parameters[feature] = [self.get_min_feature(feature), settings.numerical_precision]
-            elif kwargs['mode'] == 'min_max':
-                min_feature = self.get_min_feature(feature)
-                max_feature = self.get_max_feature(feature)
-                self.normalize_parameters[feature] = [min_feature, max_feature]
-            elif kwargs['mode'] == 'mean_std':
-                mean_feature = self.get_mean_feature(feature)
-                std_feature = self.get_std_feature(feature)
-                self.normalize_parameters[feature] = [mean_feature, std_feature]
-            elif kwargs['mode'] == 'log10':
-                self.normalize_parameters[feature] = [self.get_min_feature(feature), 0.0 ]#settings.numerical_precision]
-                self.normalize_parameters[feature] = [0.0, 0.0 ]#settings.numerical_precision]
-            elif kwargs['mode'] == 'sqrt':
-                self.normalize_parameters[feature] = self.get_min_feature(feature)
+            if kwargs['mode'] in ['min', 'min_max', 'mean_std', 'log2']:
+                self.normalize_parameters[feature] = {}
+                self.normalize_parameters[feature]['min'] = self.get_min_feature(feature)
+                self.normalize_parameters[feature]['max'] = self.get_max_feature(feature)
+                self.normalize_parameters[feature]['mean'] = self.get_mean_feature(feature)
+                self.normalize_parameters[feature]['std'] = self.get_std_feature(feature)
+                for key, default_value in {'bias':0, 'scale':1}.items():
+                    if key in kwargs.keys():
+                        if isinstance(kwargs[key],dict):
+                            if feature in kwargs[key].keys():
+                                self.normalize_parameters[feature][key] = kwargs[key][feature]
+                            elif 'default' in kwargs[key].keys():
+                                self.normalize_parameters[feature][key] = kwargs[key]['default']
+                            else:
+                                self.normalize_parameters[feature][key] = default_value
+                        elif isinstance(kwargs[key], (int, float)):
+                            self.normalize_parameters[feature][key] = kwargs[key]
+                        else:
+                            raise ValueError('ERROR: wrong type for {0:s}'.format(key))
+                    else:
+                        self.normalize_parameters[feature][key] = default_value
             elif kwargs['mode'] == 'arcsinh':
                 self.normalize_parameters[feature] = [kwargs.get('bias',0.0), kwargs.get('factor',5.0)]
                 if self.normalize_parameters[feature][0] == 'min':
@@ -337,19 +347,15 @@ class Collection(object):
             One dimensional array with data along that feature
         """
         if self.normalize_mode[feature] == 'min':
-            return data - self.normalize_parameters[feature][0] + self.normalize_parameters[feature][1]
+            return data - self.normalize_parameters[feature]['min'] + self.normalize_parameters[feature]['bias']
         elif self.normalize_mode[feature] == 'min_max':
-            return (data - self.normalize_parameters[feature][0]) / (self.normalize_parameters[feature][1] - self.normalize_parameters[feature][0]) 
+            return (data - self.normalize_parameters[feature]['min']) / (self.normalize_parameters[feature]['max'] - self.normalize_parameters[feature]['min']) 
         elif self.normalize_mode[feature] == 'mean_std':
-            return (data - self.normalize_parameters[feature][0]) / self.normalize_parameters[feature][1]
+            return (data - self.normalize_parameters[feature]['mean']) / self.normalize_parameters[feature]['std']
+        elif self.normalize_mode[feature] == 'log2':
+            return self.normalize_parameters[feature]['scale']*np.log2(data - self.normalize_parameters[feature]['min'] + self.normalize_parameters[feature]['bias'])
         elif self.normalize_mode[feature] == 'arcsinh':
             return np.arcsinh((data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1])
-        elif self.normalize_mode[feature] == 'log10':
-            dummy = (data - self.normalize_parameters[feature][0])
-            return np.log10(dummy + self.normalize_parameters[feature][1])
-        elif self.normalize_mode[feature] == 'sqrt':
-            dummy = data - self.normalize_parameters[feature]
-            return np.sqrt(dummy)
         elif self.normalize_mode[feature] == 'sigmoid':
             dummy = (data - self.normalize_parameters[feature][0])/self.normalize_parameters[feature][1]
             return 1.0 / ( 1.0 + np.exp(-dummy) )
@@ -376,19 +382,15 @@ class Collection(object):
         if isinstance(data,list):
             data = np.array(data)
         if self.normalize_mode[feature] == 'min':
-            return data + self.normalize_parameters[feature][0] - self.normalize_parameters[feature][1]
+            return data + self.normalize_parameters[feature]['min'] - self.normalize_parameters[feature]['bias']
         elif self.normalize_mode[feature] == 'min_max':
-            return data * (self.normalize_parameters[feature][1] - self.normalize_parameters[feature][0]) + self.normalize_parameters[feature][0]
+            return data * (self.normalize_parameters[feature]['max'] - self.normalize_parameters[feature]['min']) + self.normalize_parameters[feature]['min']
         elif self.normalize_mode[feature] == 'mean_std':
-            return data * self.normalize_parameters[feature][1] + self.normalize_parameters[feature][0]
+            return data * self.normalize_parameters[feature]['std'] + self.normalize_parameters[feature]['mean']
+        elif self.normalize_mode[feature] == 'log2':
+            return np.power(2, data/self.normalize_parameters[feature]['scale']) + self.normalize_parameters[feature]['min'] - self.normalize_parameters[feature]['bias']
         elif self.normalize_mode[feature] == 'arcsinh':
             return self.normalize_parameters[feature][1]*np.sinh(data)
-        elif self.normalize_mode[feature] == 'log10':
-            dummy = np.power(10.0, data)
-            return dummy - self.normalize_parameters[feature][1] + self.normalize_parameters[feature][0]
-        elif self.normalize_mode[feature] == 'sqrt':
-            dummy = np.power(data,2.0)
-            return dummy + self.normalize_parameters[feature]
         elif self.normalize_mode[feature] == 'sigmoid':
             dummy = np.log(np.array(data) / (1.0 - np.array(data)))
             return dummy*self.normalize_parameters[feature][1] + self.normalize_parameters[feature][0]
@@ -635,6 +637,18 @@ class Collection(object):
         pdf: PdfPages
         features: list
         nbins: int
+                    hc_max = -np.inf
+                    if self.clusters_analogic.size > 0:
+                        for i_cluster in range(self.n_clusters):
+                            ib = np.argmin(np.abs(b -self.clusters_analogic[i_cluster,i_dim])) 
+                            ax.plot(self.clusters_analogic[i_cluster,i_dim], h[ib], 'o', label = 'cluster {0:d}'.format(i_cluster))
+                            hc,ec = np.histogram(traj[dtraj == i_cluster], bins = e, normed = True)
+                            hc_max = max(hc_max, np.max(hc))
+                            ax.plot(b,hc,'-', label = 'cluster {0:d} = {1:f}'.format(i_cluster,100.0*np.sum(dtraj == i_cluster)/len(dtraj)))
+                        if self.fuzzy:
+                            for i_cluster in range(self.n_clusters):
+                                ind_sort = np.argsort(traj.flatten())
+                                ax.plot(ec, np.interp(ec, traj.flatten()[ind_sort] , self.probs[i_traj][:,i_cluster].flatten()[ind_sort])*hc_max,':',label = 'prob {0:d}'.format(i_cluster))
         """
         if not features:
             features = self.get_features()
@@ -654,7 +668,7 @@ class Collection(object):
             if has_norm:
                 h, e = np.histogram(data_norm, bins = nbins, normed = True)
                 b = 0.5*(e[:-1] + e[1:])
-                ax2.plot(b,h,'-')
+                ax2.plot(b,h,'-',label = None)
                 #--- change labels to actual values / x-axis
                 possible_ticks = [-1000,-100,-10,0,10,100,1000,2000,3000,4000,5000,6000,7000,8000,9000,10000,20000,30000,40000,50000,60000,70000,80000,90000,100000,200000,300000,400000,500000,600000,700000,800000,900000]
                 possible_ticklabels = ['-10^3','-10^2','-10^-1','0','10^1','10^2','10^3','','','','','','','','','10^4','','','','','','','','','10^5','','','','','','','','']
@@ -677,21 +691,30 @@ class Collection(object):
                 plt.close()
             else:
                 plt.show()
-    def show_distributions(self, features, labels, clusters_order = None, pdf = None):
+    def show_distributions(self, features, labels, discrete_data = False, clusters_order = None, pdf = None):
         """
         Parameters
         ----------
         features: list of str
         labels: np.ndarray
+        discrete_data: bool
+            If False: plot the normalized data
+            If True: plot the discretized data. It presumes that the label_[features] are available
         """
+        #--- Check labels
         if not isinstance(labels, np.ndarray):
             raise ValueError('ERROR: wrong data format')
         labels = labels.flatten().astype(int)
         if len(labels) != self.get_n_samples():
             raise ValueError('ERROR: wrong number of labels')
-        data = self.get_data_norm_features(features)
+        #--- Retrive data
+        if discrete_data:
+            data = self.get_data_label_features(features)
+        else:
+            data = self.get_data_norm_features(features)
         features = deepcopy(features)
-        dummy, clusters_order = self.plot_distributions(data, labels, features, clusters_order, 'All experiments', pdf)
+        #--- Plotting
+        percents, clusters_order = self.plot_distributions(data, labels, features, clusters_order = clusters_order, title = 'All experiments', pdf = pdf)
         if (self.get_n_conditions() > 1): # if more than one conditions exist, make also separate plots and distributions among populations
             percents_conditions = []
             for conditions in self.get_conditions():
@@ -728,7 +751,7 @@ class Collection(object):
                 plt.close()
         if pdf is None:
             plt.show()
-    def plot_distributions(self, data, labels, features, clusters_order, title, pdf = None):
+    def plot_distributions(self, data, labels, features, clusters_order, title, plot_table = False, pdf = None):
         """
         It's the method actually making the distribution plots
 
@@ -741,7 +764,7 @@ class Collection(object):
         list_labels = list(set(labels))
         n_labels = len(list_labels) 
         n_features = len(features)
-        #--- Data table
+        #--- Collect data
         percents = np.array([np.sum(labels == label) for label in list_labels]).astype(float) # percentage number of elements in each cluster
         percents /= np.sum(percents)
         data_table = np.zeros((n_features, n_labels))
@@ -761,32 +784,35 @@ class Collection(object):
                 std_table[i_feature,i_label] = np.std(dummy[labels == label])
                 text_row.append('{0:6.3f}'.format(data_table[i_feature,i_label]))
             text_table.append(text_row)
-        bar1_width = 1.0*n_features/(n_features + 2)
-        bar2_width = 1.0/(n_features + 2)
-        bar1_delta = 0.5
-        bar2_delta = 1.5*bar2_width
-        if pdf is not None:
-            f = plt.figure()
-            for i_label, label in enumerate(list_labels):
-                if percents[i_label] > 0.0:
-                    plt.bar(bar1_delta, percents[i_label], bar1_width, color = 'white', linewidth = 1.0, edgecolor = 'black')
-                    for i_feature, feature in enumerate(features):
-                        scale = ( data_table[i_feature, i_label] - np.min(data_table[i_feature,:]) + 0.1*np.ptp(data_table[i_feature,:]) ) / (1.1*np.ptp(data_table[i_feature,:]))
-                        if not np.isnan(scale):
-                            plt.bar(bar2_delta, percents[i_label], bar2_width, color = settings.colors[i_feature % len(settings.colors)], linewidth = 0, alpha = scale)
-                            bar2_delta += 1.0*bar2_width
-                bar2_delta += 2.0*bar2_width 
-                bar1_delta += 1
-            plt.xlim([0,n_labels])
-            table = plt.table(cellText = text_table, rowLabels = ['%',] + features, colLabels = [str(label) for label in list_labels], loc = 'bottom', rowColours=color_table)
-            plt.subplots_adjust(left=0.3, bottom=0.3)
-            plt.ylabel('Cells in cluster [%]')
-            plt.yscale('log')
-            plt.xticks([])
-            plt.title(title)
-            pdf.savefig()
-            plt.close()
+        #--- Table
+        if plot_table:
+            bar1_width = 1.0*n_features/(n_features + 2)
+            bar2_width = 1.0/(n_features + 2)
+            bar1_delta = 0.5
+            bar2_delta = 1.5*bar2_width
+            if pdf is not None:
+                f = plt.figure()
+                for i_label, label in enumerate(list_labels):
+                    if percents[i_label] > 0.0:
+                        plt.bar(bar1_delta, percents[i_label], bar1_width, color = 'white', linewidth = 1.0, edgecolor = 'black')
+                        for i_feature, feature in enumerate(features):
+                            scale = ( data_table[i_feature, i_label] - np.min(data_table[i_feature,:]) + 0.1*np.ptp(data_table[i_feature,:]) ) / (1.1*np.ptp(data_table[i_feature,:]))
+                            if not np.isnan(scale):
+                                plt.bar(bar2_delta, percents[i_label], bar2_width, color = settings.colors[i_feature % len(settings.colors)], linewidth = 0, alpha = scale)
+                                bar2_delta += 1.0*bar2_width
+                    bar2_delta += 2.0*bar2_width 
+                    bar1_delta += 1
+                plt.xlim([0,n_labels])
+                table = plt.table(cellText = text_table, rowLabels = ['%',] + features, colLabels = [str(label) for label in list_labels], loc = 'bottom', rowColours=color_table)
+                plt.subplots_adjust(left=0.3, bottom=0.3)
+                plt.ylabel('Cells in cluster [%]')
+                plt.yscale('log')
+                plt.xticks([])
+                plt.title(title)
+                pdf.savefig()
+                plt.close()
         average_features = data_table.transpose()
+        self.dummy = average_features
         #--- Dendogram
         if clusters_order is None:
             f = plt.figure()
@@ -798,7 +824,7 @@ class Collection(object):
                 plt.close()
         #--- Heatmap
         f = plt.figure()
-        ax = f.add_subplot(121)
+        ax = f.add_subplot(111)
         #cax = ax.matshow(np.log10(average_features[clusters_order,:]), cmap = 'RdYlBu_r')
         cax = ax.matshow(average_features[clusters_order,:], cmap = 'RdYlBu_r')
         cbar = f.colorbar(cax)
@@ -821,18 +847,34 @@ class Collection(object):
         cbar.set_ticks(c_ticks_norm)
         cbar.set_ticklabels(c_ticklabels)
         plt.xticks(range(len(features)),features,rotation='vertical')
-        plt.yticks(range(len(set(labels))),clusters_order)
+        plt.yticks(range(len(set(clusters_order))),clusters_order)
         plt.ylabel('cluster index')
         cbar.set_label('Heatmap - ' + title)
+        if pdf is not None:
+            pdf.savefig()
+            plt.close()
         #--- Normalized Heatmap
+        f = plt.figure()
+        ax = f.add_subplot(111)
         average_features_norm = (average_features - np.min(average_features, axis = 0)) / (np.max(average_features, axis = 0) - np.min(average_features, axis = 0))
-        ax = f.add_subplot(122)
         cax = ax.matshow(average_features_norm[clusters_order,:], cmap = 'RdYlBu_r', vmin = 0, vmax = 1)
         cbar = f.colorbar(cax)
         plt.xticks(range(len(features)),features,rotation='vertical')
-        plt.yticks(range(len(set(labels))),clusters_order)
+        plt.yticks(range(len(set(clusters_order))),clusters_order)
         plt.ylabel('cluster index')
         cbar.set_label('Normalized heatmap - ' + title)
+        if pdf is not None:
+            pdf.savefig()
+            plt.close()
+        #--- Occupancies
+        f = plt.figure()
+        ax = f.add_subplot(121)
+        cax = ax.matshow(np.log10(percents[clusters_order].reshape(-1,1)), cmap = 'binary')
+        cbar = f.colorbar(cax)
+        plt.xticks([],[])
+        plt.yticks(range(len(set(clusters_order))),clusters_order)
+        plt.ylabel('cluster index')
+        cbar.set_label('Occupancies')
         if pdf is not None:
             pdf.savefig()
             plt.close()
@@ -960,15 +1002,15 @@ class Experiment(object):
         """
         return self.data_norm
     def get_data_features(self, features):
-        if not isinstance(features, list):
+        if not (isinstance(features, list) or isinstance(features, tuple)):
             if not isinstance(features, str):
-                raise ValueError('ERROR: wrong format for feature')
+                raise ValueError('ERROR: wrong format for features: ', features)
             features = [features,]
         return self.data[:,self.get_index_features(features)]
     def get_data_norm_features(self, features):
-        if not isinstance(features, list):
+        if not (isinstance(features, list) or isinstance(features, tuple)):
             if not isinstance(features, str):
-                raise ValueError('ERROR: wrong format for feature')
+                raise ValueError('ERROR: wrong format for features: ', features)
             features = [features,]
         return self.data_norm[:,self.get_index_norm_features(features)]
     def get_index_features(self, features):
@@ -1016,9 +1058,9 @@ class Experiment(object):
             If defined, it checks if the features in the list were normalized
             Otherwise, the return value is True if any feature was normalized
         """
-        if not isinstance(features, list):
+        if not (isinstance(features, list) or isinstance(features, tuple)):
             if not isinstance(features, str):
-                raise ValueError('ERROR: wrong format for feature')
+                raise ValueError('ERROR: wrong format for features: ', features)
             features = [features,]
         return all([feature in self.get_norm_features() for feature in features])
     def compensate(self):

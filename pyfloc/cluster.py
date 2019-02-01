@@ -20,12 +20,12 @@ print = functools.partial(print, flush=True)
 
 class Cluster(object):
     """
-    Class for discretizing trajectories
+    Hard clustering
 
-    Classes inheriting Cluster should define:
+    Classes inheriting Cluster must define:
         fit : method that initialize the clustering algorithm
-            This method should define the attribute: cluster_analogic
-        predict: method that take as input an analogic trajectory and return its discretized version
+            This method must define the attribute: cluster_analogic
+        predict: method that takes as input an analogic trajectory and return its discretized version
 
     Attributes
     ----------
@@ -33,32 +33,40 @@ class Cluster(object):
         Name of the clustering method
     trajs: list
         List of trajectories
-        Each trajectory is a np.ndarray with shape: <number of samples> x <number of features>
+        Each trajectory is a np.ndarray with 
+            shape: <number of samples> x <number of features>
+            values: the features
     dtrajs: list 
         Discretized trajectories
         Each discretized trajectory is a np.ndarray with
             shape: <number of samples>
             values: index of the cluster for that sample
-    clusters_analogic: np.ndarray with shape: <number of bins> x <number of features>
-        Values used as representative of the clusters when back-converting to analogic values
+    probs: list 
+        Probability of clustering
+        Each element of the list is a np.ndarray with
+            shape: <number of samples> x <number of clusters>
+            values: probability that sample belongs to that cluster
+    clusters_analogic: np.ndarray with 
+        shape: <number of bins> x <number of features>
+        values: used as representative of the clusters when back-converting to analogic values
     labels: list
         Reference labels
         Each element of the list is a np.ndarray with
             shape: <number of samples>
-            values: label of the sample
+            values: true label of that sample
         The labels are always converted into the range 0:n_labels
-        Nan values are converted to -1
+        NaN values are converted to -1
     trajs_merged : np.ndarray
-        Shape: <number of samples> x <number of features>
         All the trajectories combined into a single array
+        shape: <number of samples> x <number of features>
     dtrajs_merged: np.ndarray
-        Shape: <number of samples>
         All the discretized trajectories combined into a single array
+        shape: <number of samples>
     labels_merged: np.ndarray
-        Shape: <number of samples>
         All the labels combined into a single array
+        shape: <number of samples>
     """
-    def __init__(self, trajs, labels = [], verbose = 0):
+    def __init__(self, trajs, labels = [], fuzzy = False, verbose = 0):
         """
         Parameters
         ----------
@@ -70,32 +78,33 @@ class Cluster(object):
             Each element of the list is a np.ndarray with
                 shape : <number of samples>
                 values : label of the sample
+        fuzzy: bool
+            True if fuzzy clustering
         verbose: int
             How much output is produced
         """
         self.verbose = verbose
+        self.fuzzy = fuzzy # True for fuzzy clustering
         self.trajs = trajs # analogical trajectories
         self.dtrajs = [] # discrete trajectories
+        self.probs = [] # probability of clustering
         self.clusters_analogic = np.empty(0) # samples used as representative of clusters for analogic conversions
         self.name = 'Undefined' # name of the clustering algorithm
         self.fit_done = False
-        #--- This is done to be sure that reference labels start from zero and are consecutives
-        set_labels = set()
-        for labels_traj in labels:
-            for label in labels_traj:
-                if not np.isnan(label):
-                    set_labels.add(int(label))
-        list_labels = list(set_labels)
-        list_labels.sort()
-        dict_labels = {}
-        for i, label in enumerate(list_labels):
-            dict_labels[label] = i
+        #--- Labels equal to NaN or negative values are all converted to -1
+        if isinstance(labels,np.ndarray):
+            labels = [labels.flatten(),]
         self.labels = []
         for labels_traj in labels:
-            label_traj_new = []
-            for label in labels_traj:
-                label_traj_new.append(dict_labels.get(label,-1))
-            self.labels.append(np.array(label_traj_new))
+            if isinstance(labels_traj,list):
+                labels_traj = np.array(labels_traj)
+            if not isinstance(labels_traj,np.ndarray):
+                raise ValueError('ERROR: wrong type for labels')
+            labels_traj = labels_traj.astype(int)
+            labels_traj[np.isnan(labels_traj)] = -1
+            labels_traj[np.logical_not(np.isfinite(labels_traj))] = -1
+            labels_traj[labels_traj < 0] = -1
+            self.labels.append(labels_traj)
         #--- Create merged trajectories / labels
         self.trajs_merged = np.vstack([traj for traj in self.trajs]).astype('float64')
         self.dtrajs_merged = -1*np.ones(self.n_frames()).astype(int)
@@ -132,6 +141,7 @@ class Cluster(object):
     def n_frames_traj(self, traj):
         """Return the number of frames of the trajectory"""
         return np.shape(traj)[0]
+    @property
     def n_clusters(self):
         """Return the number of clusters"""
         if self.clusters_analogic.size > 0:
@@ -142,17 +152,19 @@ class Cluster(object):
                 for cluster in dtraj:
                     clusters.add(cluster)
             return len(clusters)
+    def n_labels(self, exclude = {-1,}):
+        """Return the number of reference labels"""
+        return len(self.set_labels() - exclude)
     def set_labels(self):
         """Return the set of reference labels"""
         labels = set()
         for labels_traj in self.labels:
-            for label in labels_traj:
-                if label >= 0: #MM
-                    labels.add(label)
+            labels |= set(np.unique(labels_traj))
         return labels
-    def n_labels(self):
-        """Return the number of reference labels"""
-        return len(self.set_labels())
+    def list_labels(self, exclude = {-1,}):
+        l = list(self.set_labels() - exclude)
+        l.sort()
+        return l
     def get_index_merged(self, i_traj):
         """Return start and end index for trajetory i_traj in merged trajectory"""
         ind_start = 0
@@ -169,10 +181,14 @@ class Cluster(object):
         """Perform the discretization of all the trajectories trajectories"""
         self.dtrajs = []
         for i_traj, traj in enumerate(self.trajs):
-            dtraj = self.predict(traj)
-            self.dtrajs.append(dtraj)
+            prediction = self.predict(traj)
+            if self.fuzzy: # in this case self.predict return dtraj and probs
+                self.dtrajs.append(prediction[0])
+                self.probs.append(prediction[1])
+            else: # in this case self.predict returns only dtraj
+                self.dtrajs.append(prediction)
             i_start, i_end = self.get_index_merged(i_traj)
-            self.dtrajs_merged[i_start:i_end] =  dtraj
+            self.dtrajs_merged[i_start:i_end] =  self.dtrajs[-1]
     def fit_predict(self, *args, **kwargs):
         if not self.fit_done:
             self.fit(*args, **kwargs)
@@ -182,20 +198,37 @@ class Cluster(object):
         self.sort_clusters()
     def sort_clusters(self):
         """
-        Change the order of the labels so that the norm of the cluster centers is sorted
+        Change the order of the clusters
+        If data are 1-dimensional: the clusters are ordered considering the norm of the cluster centers
+        If data have more than 1 dimensions: the clusters are ordered from the most populated one to the least populated one
         """
-        norm = np.linalg.norm(self.clusters_analogic, axis = 1)
-        inds_sorted = np.argsort(norm)
+        if self.n_dims() == 1:
+            norm = np.linalg.norm(self.clusters_analogic, axis = 1)
+            inds_sorted = np.argsort(norm)
+        else:
+            norm = self.n_samples()
+            inds_sorted = np.argsort(norm)[-1::-1]
         clusters_analogic_not_sorted = deepcopy(self.clusters_analogic)
         for ind_old, ind_new in enumerate(inds_sorted):
             self.clusters_analogic[ind_old,:] = clusters_analogic_not_sorted[ind_new,:]
-        for i_traj, dtraj in enumerate(self.dtrajs):
-            dtraj_sorted = deepcopy(dtraj)
+        dtrajs_old = deepcopy(self.dtrajs)
+        if self.fuzzy:
+            probs_old = deepcopy(self.probs)
+        self.dtrajs = []
+        self.probs = []
+        for i_traj, dtraj_old in enumerate(dtrajs_old):
+            dtraj = deepcopy(dtraj_old)
+            if self.fuzzy:
+                prob = deepcopy(probs_old[i_traj])
             for ind_old, ind_new in enumerate(inds_sorted):
-                dtraj_sorted[dtraj == ind_old] = ind_new
-            self.dtrajs[i_traj] = dtraj_sorted
+                dtraj[dtraj_old == ind_new] = ind_old
+                if self.fuzzy:
+                    prob[:,ind_old] = probs_old[i_traj][:,ind_new]
+            self.dtrajs.append(dtraj)
+            if self.fuzzy:
+                self.probs.append(prob)
             i_start, i_end = self.get_index_merged(i_traj)
-            self.dtrajs_merged[i_start:i_end] =  dtraj_sorted
+            self.dtrajs_merged[i_start:i_end] =  dtraj
     def analogic(self, dtraj):
         """Return the discretized trajectory in analogic form"""
         if not isinstance(dtraj,np.ma.MaskedArray):
@@ -234,7 +267,7 @@ class Cluster(object):
             If different from None calculate n_samples only for these clusters
         """
         if list_clusters is None:
-            list_clusters = range(self.n_clusters())
+            list_clusters = range(self.n_clusters)
         samples = np.zeros(len(list_clusters))
         for i, i_cluster in enumerate(list_clusters):
             for i_traj, dtraj in enumerate(self.dtrajs):
@@ -257,14 +290,19 @@ class Cluster(object):
         """
         if list_labels is None:
             list_labels = list(self.set_labels())
-        samples = np.zeros(len(list_labels))
-        for i, label in enumerate(list_labels):
+        samples = {}
+        for label in list_labels:
+            samples[label] = 0
+        total = 0
+        for label in list_labels:
             for i_traj, label_traj in enumerate(self.labels):
                 n = np.sum(label_traj == label)
                 if n:
-                    samples[i] += int(n)
+                    samples[label] += int(n)
+                    total += int(n)
         if norm:
-            samples /= np.sum(samples)
+            for label in list_labels:
+                samples[label] /= total
         return samples
     def most_populated_cluster(self):
         """Return the index of the most populated cluster"""
@@ -290,8 +328,8 @@ class Cluster(object):
         return indexes_sync
     def remove_cluster(self, cluster):
         """Remove cluster from the discretized trajectories: samples after the first occurence of cluster are removed"""
-        print('Number of states before removal {0:d}'.format(self.n_clusters()))
-        inds_new_cluster = -1*np.ones(self.n_clusters()).astype(int)
+        print('Number of states before removal {0:d}'.format(self.n_clusters))
+        inds_new_cluster = -1*np.ones(self.n_clusters).astype(int)
         ind_new_cluster = 0
         clusters_analogic = []
         for ind_cluster, n_sample in enumerate(self.n_samples()):
@@ -312,12 +350,12 @@ class Cluster(object):
                     dtraj = dtraj[:ind_first]
                 print('Number of samples in dtraj {0:d} after removing cluster {1:d} = {2:d}'.format(i_traj, cluster, len(dtraj)))
             self.dtrajs[i_traj] = inds_new_cluster[dtraj]
-        print('Number of states after removal {0:d}'.format(self.n_clusters()))
+        print('Number of states after removal {0:d}'.format(self.n_clusters))
         self.remove_empty_states()
     def remove_empty_states(self):
         """Redefine the discretized trajectories if there are clusters without samples"""
-        print('Number of states before removal {0:d}'.format(self.n_clusters()))
-        inds_new_cluster = -1*np.ones(self.n_clusters()).astype(int)
+        print('Number of states before removal {0:d}'.format(self.n_clusters))
+        inds_new_cluster = -1*np.ones(self.n_clusters).astype(int)
         ind_new_cluster = 0
         clusters_analogic = []
         for ind_cluster, n_sample in enumerate(self.n_samples()):
@@ -328,11 +366,11 @@ class Cluster(object):
         self.clusters_analogic = np.array(clusters_analogic)
         for i_traj, dtraj in enumerate(self.dtrajs):
             self.dtrajs[i_traj] = inds_new_cluster[dtraj]
-        print('Number of states after removal {0:d}'.format(self.n_clusters()))
+        print('Number of states after removal {0:d}'.format(self.n_clusters))
     def get_outliers(self):
         dist_max = -np.inf
         for i_traj in range(self.n_trajs()):
-            for  i_cluster in range(self.n_clusters()):
+            for  i_cluster in range(self.n_clusters):
                 frames = (self.dtrajs[i_traj] == i_cluster)
                 dist = np.linalg.norm(self.trajs[i_traj][frames,:] - self.clusters_analogic[i_cluster,:], axis = 1)
                 if np.size(dist):
@@ -349,8 +387,8 @@ class Cluster(object):
         if (mode == 'manhattan') or (mode == 'chebyshev'):
             dist_dims = np.zeros((self.n_dims(),self.n_frames(),self.n_frames()))
             for i_dim in range(self.n_dims()):
-                dist_i = pairwise_distances(self.trajs_merged[:,i_dim].reshape(self.n_frames(),-1))
-                dist_dims[i_dim,:,:] = dist_i
+                #dist_dims[i_dim,:,:] = pairwise_distances(self.trajs_merged[:,i_dim].reshape(self.n_frames(),-1))
+                dist_dims[i_dim,:,:] = np.abs( (self.trajs_merged[:,i_dim].reshape(-1,1)) - (self.trajs_merged[:,i_dim].reshape(1,-1)) )
             if mode == 'manhattan':
                 dist = np.sum(dist_dims, axis = 0)
             elif mode == 'chebyshev':
@@ -360,20 +398,6 @@ class Cluster(object):
                 dist = pairwise_distances(self.trajs_merged.reshape(-1,1))
             else:
                 dist = pairwise_distances(self.trajs_merged)
-        elif mode == 'logarithmic':
-            # CANE
-            dist_dims = np.zeros((self.n_dims(),self.n_frames(),self.n_frames()))
-            for i_dim in range(self.n_dims()):
-                dist_dims[i_dim,:,:] = np.abs( np.log2(self.trajs_merged[:,i_dim].reshape(-1,1)) - np.log2(self.trajs_merged[:,i_dim].reshape(1,-1)) )
-            dist = np.sum(dist_dims, axis = 0)
-            #dist = np.abs( np.log2(self.trajs_merged.reshape(-1,1)) - np.log2(self.trajs_merged.reshape(1,-1)) )
-            #dist = np.abs( (self.trajs_merged.reshape(-1,1) - self.trajs_merged.reshape(1,-1)) / self.trajs_merged.reshape(-1,1) )
-            #dist = (self.trajs_merged.reshape(-1,1) / self.trajs_merged.reshape(1,-1))
-            #dist = np.abs( (self.trajs_merged.reshape(-1,1) - self.trajs_merged.reshape(1,-1)) / (0.5*(self.trajs_merged.reshape(-1,1) + self.trajs_merged.reshape(-1,1))) )
-            #num = (self.trajs_merged.reshape(-1,1) - self.trajs_merged.reshape(1,-1))
-            #den = (0.5*(self.trajs_merged.reshape(-1,1) + self.trajs_merged.reshape(-1,1)))
-            #dist = np.abs( num / den )
-            #dist[np.isnan(dist)] = 0.0
         elif mode == 'angular':
             scalar = np.dot(self.trajs_merged, self.trajs_merged.transpose())
             teta = (scalar / np.sqrt(scalar.diagonal().reshape(scalar.shape[0],1)) / np.sqrt(scalar.diagonal().reshape(1,scalar.shape[0])))
@@ -382,30 +406,28 @@ class Cluster(object):
         else:
             raise NotImplementedError('Method {0:s} does not exist'.format(mode))
         return dist
-    def score(self, m_dtrajs = None, n_clusters = None):
+    def score(self):
         """
         Calculate the score of the clustering algorithm by comparing the clustering results with reference labels
         """
-        if n_clusters is None:# MM
-            n_clusters = self.n_clusters()
-        if m_dtrajs is None:
-            m_dtrajs = self.dtrajs
-        n_labels = self.n_labels() 
-        precision_matrix = np.zeros((n_clusters, n_labels))
-        count_matrix = np.zeros((n_clusters, n_labels))
-        recall_matrix = np.zeros((n_clusters, n_labels))
-        for i_cluster in range(n_clusters):
-            for i_label in range(n_labels):
-                detected = 0
-                true = 0
-                true_positive = 0
-                #for i_traj, dtraj in enumerate(self.dtrajs): MM
-                for i_traj, dtraj in enumerate(m_dtrajs):
+        n_labels = self.n_labels(exclude = {-1,0,}) # -1,0 are excluded because they are used for unclassified samples
+        precision_matrix = np.zeros((self.n_clusters, n_labels))
+        count_matrix = np.zeros((self.n_clusters, n_labels))
+        recall_matrix = np.zeros((self.n_clusters, n_labels))
+        for i_cluster in range(self.n_clusters):
+            for i_label, label in enumerate(self.list_labels(exclude = {-1,0,})):
+                detected = 0.0 # samples belonging to i_cluster
+                true = 0.0 # samples belonging to i_label
+                true_positive = 0.0 # samples belonging to i_cluster AND label
+                for i_traj, dtraj in enumerate(self.dtrajs):
                     labels = self.labels[i_traj]
-                    dtraj_classified = dtraj[labels >= 0]
-                    labels_classified = labels[labels >= 0]
-                    samples_i_cluster = (dtraj_classified == i_cluster)
-                    samples_i_label = (labels_classified == i_label)
+                    dtraj_classified = dtraj[labels >= 0] # in this way it gets rid of unclassified samples (< 0)
+                    labels_classified = labels[labels >= 0] # in this way it gets rid of unclassified samples (< 0)
+                    samples_i_label = (labels_classified == label)
+                    if self.fuzzy:
+                        samples_i_cluster = self.probs[i_traj][:,i_cluster].flatten()
+                    else:
+                        samples_i_cluster = (dtraj_classified == i_cluster)
                     detected += np.sum(samples_i_cluster)
                     true += np.sum(samples_i_label)
                     true_positive += np.sum(samples_i_label*samples_i_cluster)
@@ -417,11 +439,9 @@ class Cluster(object):
         f_matrix = 2.0 * precision_matrix * recall_matrix / (precision_matrix + recall_matrix)
         f_matrix[np.isnan(f_matrix)] = 0.0
         if f_matrix.shape[0] > f_matrix.shape[1]:
-            #inv_f = -1.0*np.transpose(count_matrix)
             inv_f = -1.0*np.transpose(f_matrix)
             pair_index_labels, pair_index_clusters = linear_sum_assignment(inv_f)
         else:
-            #inv_f = -1.0*count_matrix
             inv_f = -1.0*f_matrix
             pair_index_clusters, pair_index_labels = linear_sum_assignment(inv_f)
         precision = np.zeros(n_labels)
@@ -431,17 +451,9 @@ class Cluster(object):
             precision[i_label] = precision_matrix[i_cluster, i_label]
             recall[i_label] = recall_matrix[i_cluster, i_label]
             f[i_label] = f_matrix[i_cluster, i_label]
-        #print('Count matrix: ',count_matrix)
-        #print('F-matrix: ',f_matrix)
-        #print('Pair index labels: ',pair_index_labels)
-        #print('Pair index clusters: ',pair_index_clusters)
-        #print('Precision: ',precision,', average = ',np.mean(precision[pair_index_labels]))
-        #print('Recall: ',recall,', average = ',np.mean(recall[pair_index_labels]))
-        #print('f: ',f,', average = ',np.mean(f[pair_index_labels]))
-        #print('Score clustering algorithm: {0:f} +/- {1:f}'.format(np.mean(f[pair_index_labels]),np.std(f[pair_index_labels])))
         return pair_index_labels, pair_index_clusters, precision[pair_index_labels], recall[pair_index_labels], f[pair_index_labels]
     def centroids(self):
-        n_clusters = self.n_clusters()
+        n_clusters = self.n_clusters
         clusters_analogic = np.empty((n_clusters, self.n_dims()))
         for i_cluster in range(n_clusters):
             if self.verbose > 0:
@@ -475,7 +487,7 @@ class Cluster(object):
         if self.n_dims() == 1:
             f = plt.figure()
             ax = f.add_subplot(111)
-            x = self.clusters_analogic.reshape(self.n_clusters())
+            x = self.clusters_analogic.reshape(self.n_clusters)
             ind_sort = np.argsort(x)
             ax.plot(x[ind_sort], self.n_samples()[ind_sort],'o-')
             plt.xlabel('Reaction Coordinate 0')
@@ -549,12 +561,19 @@ class Cluster(object):
                     ib = np.argmin(np.abs(b - np.mean(traj))) 
                     ax.plot(np.mean(traj), h[ib], 'xb', label = None)
                     ax.plot(e[np.argmax(h)], np.max(h), '+b', label = None)
+                    hc_max = -np.inf
                     if self.clusters_analogic.size > 0:
-                        for i_cluster in range(self.n_clusters()):
+                        for i_cluster in range(self.n_clusters):
                             ib = np.argmin(np.abs(b -self.clusters_analogic[i_cluster,i_dim])) 
                             ax.plot(self.clusters_analogic[i_cluster,i_dim], h[ib], 'o', label = 'cluster {0:d}'.format(i_cluster))
                             hc,ec = np.histogram(traj[dtraj == i_cluster], bins = e, normed = True)
+                            hc_max = max(hc_max, np.max(hc))
                             ax.plot(b,hc,'-', label = 'cluster {0:d} = {1:f}'.format(i_cluster,100.0*np.sum(dtraj == i_cluster)/len(dtraj)))
+                        if self.fuzzy:
+                            for i_cluster in range(self.n_clusters):
+                                ind_sort = np.argsort(traj.flatten())
+                                ax.plot(ec, np.interp(ec, traj.flatten()[ind_sort] , self.probs[i_traj][:,i_cluster].flatten()[ind_sort])*hc_max,':',label = 'prob {0:d}'.format(i_cluster))
+                plt.ylim((0,hc_max))
                 plt.legend()
                 if pdf is not None:
                     pdf.savefig()
@@ -577,7 +596,7 @@ class Cluster(object):
                         if len(self.dtrajs):
                             dtraj = self.dtrajs[i_traj]
                             dtraj_analogic = self.analogic(dtraj)
-                            for i_cluster in range(self.n_clusters()):
+                            for i_cluster in range(self.n_clusters):
                                 if len(np.shape(dtraj)) == 1:
                                     #inds_cluster = (dtraj == i_cluster)
                                     #ax1.plot(traj[inds_cluster,i][::stride],traj[inds_cluster,j][::stride],'.',color = settings.colors[i_cluster%len(settings.colors)])
@@ -585,7 +604,7 @@ class Cluster(object):
                                     ax1.plot(traj[::stride,:][inds_cluster,i],traj[::stride,:][inds_cluster,j],'.', markersize = 1.0, color = settings.colors[i_cluster%len(settings.colors)])
                                     ax1.plot(self.clusters_analogic[i_cluster,i],self.clusters_analogic[i_cluster,j],'o',color=settings.colors[i_cluster%len(settings.colors)], markeredgecolor = 'k', label = str(i_cluster))
                         if self.clusters_analogic.size > 0:
-                            for i_cluster in range(self.n_clusters()):
+                            for i_cluster in range(self.n_clusters):
                                 ax1.plot(self.clusters_analogic[i_cluster,i],self.clusters_analogic[i_cluster,j],'o',color=settings.colors[i_cluster%len(settings.colors)], markeredgecolor = 'k')
                         if self.labels:
                             ax2.scatter(traj[::stride,i],traj[::stride,j],c=self.labels[i_traj][::stride].astype(int), vmin = 0, vmax = 10)
@@ -602,11 +621,11 @@ class Cluster(object):
                         plt.close()
         if plot_labels:
             means_labels = np.empty((self.n_labels(),self.n_dims()))
-            for label in range(self.n_labels()):
+            for i_label, label in enumerate(self.list_labels()):
                 f = plt.figure()
                 ax1 = f.add_subplot(1,1,1)
-                means_labels[label,:] =  self.get_mean_label(label)
-                ax1.errorbar(range(self.n_dims()), means_labels[label,:], yerr = self.get_std_label(label), fmt = 'o', label = label)
+                means_labels[i_label,:] =  self.get_mean_label(label)
+                ax1.errorbar(range(self.n_dims()), means_labels[i_label,:], yerr = self.get_std_label(label), fmt = 'o', label = label)
                 plt.xlabel('Feature')
                 plt.ylabel('mean +/- std')
                 plt.legend()
@@ -627,34 +646,35 @@ class Cluster(object):
         output = 'Results of clustering with method {0:s}\n'.format(self.name)
         n_samples_per_cluster = self.n_samples()
         if self.labels is not None:
+            list_labels = self.list_labels(exclude = {-1,0,})
             n_samples_per_label = self.n_samples_labels()
-            for i, label in enumerate(np.argsort(n_samples_per_label)):
-                output += '\tLabel {0:d} = {1:d}\n'.format(int(label), int(n_samples_per_label[label]))
+            for label, n_samples in n_samples_per_label.items():
+                output += '\tLabel {0:d} = {1:d}\n'.format(label, n_samples)
                 output += '\t\tmeans = ' + str(self.get_mean_label(label)) + '\n'
                 output += '\t\tstds = ' + str(self.get_std_label(label)) + '\n'
             pairing_labels, pairing_clusters, precision, recall, f = self.score()
-        for i_cluster in range(self.n_clusters()):
+        for i_cluster in range(self.n_clusters):
             output += '\tCluster {0:d}\n'.format(i_cluster)
             output += '\t\tnumber of samples = {0:d}\n'.format(int(n_samples_per_cluster[i_cluster]))
             output += '\t\tcenter = {0:s}\n'.format(':'.join([str(x) for x in self.clusters_analogic[i_cluster,:]]))
             output += '\t\tmeans = ' + str(self.get_mean_cluster(i_cluster)) + '\n'
             output += '\t\tstds = ' + str(self.get_std_cluster(i_cluster)) + '\n'
             if self.labels is not None:
-                if self.n_labels() >= self.n_clusters():
-                    output += '\t\tpairing label[{0:d}] = {1:d}\n'.format(pairing_labels[i_cluster], int(n_samples_per_label[pairing_labels[i_cluster]]))
+                if self.n_labels() >= self.n_clusters:
+                    output += '\t\tpairing label[{0:d}] = {1:d}\n'.format(list_labels[pairing_labels[i_cluster]], int(n_samples_per_label[list_labels[pairing_labels[i_cluster]]]))
                     output += '\t\tprecision = {0:f}\n'.format(precision[i_cluster])
                     output += '\t\trecall = {0:f}\n'.format(recall[i_cluster])
                     output += '\t\tf-score = {0:f}\n'.format(f[i_cluster])
                 else:
                     if i_cluster in pairing_clusters:
                         i_label = np.where(pairing_clusters == i_cluster)[0][0]
-                        label = pairing_labels[i_label]
+                        label = list_labels[pairing_labels[i_label]]
                         output += '\t\tpairing label[{0:d}] = {1:d}\n'.format(label, int(n_samples_per_label[label]))
                         output += '\t\tprecision = {0:f}\n'.format(precision[i_label])
                         output += '\t\trecall = {0:f}\n'.format(recall[i_label])
                         output += '\t\tf-score = {0:f}\n'.format(f[i_label])
         if self.labels:
-            output += '\tAverage f-score = {0:f} +/- {1:f} ; n_cluster = {2:d} f_score_all = {3:f}\n'.format(np.mean(f), np.std(f), self.n_clusters(), np.mean(f)*min(self.n_clusters()/self.n_labels(),1.0))
+            output += '\tAverage f-score = {0:f} +/- {1:f} ; n_cluster = {2:d} f_score_all = {3:f}\n'.format(np.mean(f), np.std(f), self.n_clusters, np.mean(f)*min(self.n_clusters/self.n_labels(),1.0))
         return output[:-1]
     def dump(self, file_name):
         with open(file_name,'wb') as fout:
@@ -666,11 +686,11 @@ class ClusterSKlearn(Cluster):
     ----------
     """
     def __init__(self, trajs = None, labels = [], verbose = 0):
-        super(ClusterSKlearn, self).__init__(trajs, labels, verbose)
+        super(ClusterSKlearn, self).__init__(trajs = trajs, labels = labels, verbose = verbose)
     def predict(self, traj):
         return self.algorithm.predict(traj)
 
-class Unique(ClusterSKlearn):
+class Unique(Cluster):
     """
     Class for clustering each unique point in its own cluster
     N.B. It works only when feature values are integer numbers
@@ -680,28 +700,48 @@ class Unique(ClusterSKlearn):
     list_samples: list
         List of all the unique values
     """
-    def __init__(self, trajs = None, labels = [], verbose = 0):
-        super(Unique, self).__init__(trajs, labels, verbose)
-        self.list_samples = []
+    def __init__(self, trajs = None, labels = [], list_samples = [], probs = None, verbose = 0):
+        """
+        Parameters
+        ----------
+        probs: None / list of np.ndarray
+            If different from None, the arrays give the probability of fuzzy clustering
+        list_samples: list
+            List of unique samples
+            If not defined externally, it is calculated at run-time
+            It might be useful to define it externally, to preserve the order of the clusters
+        """
+        super(Unique, self).__init__(trajs, labels, probs is not  None, verbose)
+        self.list_samples = list_samples
+        if self.fuzzy:
+            self.probs = probs
+            print(self.probs)
         self.name = 'Single Points'
     def fit(self):
-        print('Searching for set of all possible unique samples')
-        set_samples = set()
-        for traj in self.trajs:
-            for i_frame in range(self.n_frames_traj(traj)):
-                sample = tuple(traj[i_frame,:].astype(int))
-                set_samples.add(sample)
-        self.list_samples = []
-        for sample in set_samples:
-            self.list_samples.append(list(sample))
+        if not self.list_samples:
+            print('Searching for set of all possible unique samples')
+            set_samples = set()
+            for traj in self.trajs:
+                for i_frame in range(self.n_frames_traj(traj)):
+                    sample = tuple(traj[i_frame,:].astype(int))
+                    set_samples.add(sample)
+            self.list_samples = []
+            for sample in set_samples:
+                self.list_samples.append(list(sample))
         self.clusters_analogic = np.array(self.list_samples)
-        print('Number of unique samples = ',len(set_samples))
+        print('Number of unique samples = ',len(self.list_samples))
         self.fit_done = True
     def predict(self, traj):
         dtraj = []
         for i_frame in range(self.n_frames_traj(traj)):
             dtraj.append(self.list_samples.index(list(traj[i_frame,:])))
-        return np.array(dtraj)
+        if not self.fuzzy:
+            return np.array(dtraj)
+        for i_traj_internal, traj_internal in enumerate(self.trajs): # search for traj among self.trajs
+            if self.n_frames_traj(traj_internal) == len(traj):
+                if np.all(np.prod(traj_internal == traj, axis = 1).astype(bool)): # this is the internal trajectory
+                    return np.array(dtraj), self.probs[i_traj_internal]
+        raise ValueError('ERROR: missing trajectory')
 
 class Kmeans(ClusterSKlearn):
     def __init__(self, trajs = None, labels = [], verbose = 0):
@@ -841,7 +881,7 @@ class GaussianMixture(ClusterSKlearn):
 #		self.algorithm.fit(self.data)
 #		self.name='SpectralClustering'
 
-class DensityPeaks(ClusterSKlearn):
+class DensityPeaks(Cluster):
     """
     Attributes
     ----------
@@ -864,8 +904,8 @@ class DensityPeaks(ClusterSKlearn):
     kernel_radius:  float
         The radius of the kernel
     """
-    def __init__(self, trajs = None, labels = [], verbose = 0):
-        super(DensityPeaks, self).__init__(trajs, labels, verbose)
+    def __init__(self, trajs = None, labels = [], fuzzy = False, verbose = 0):
+        super(DensityPeaks, self).__init__(trajs, labels, fuzzy, verbose)
         self.dist = np.empty((self.n_frames(), self.n_frames()))
         self.rho = np.empty(self.n_frames())
         self.delta = np.empty(self.n_frames())
@@ -927,59 +967,27 @@ class DensityPeaks(ClusterSKlearn):
             ns_clusters = [int(n_clusters) for n_clusters in ns_clusters] # to be sure that they're all integers
         #--- Computing density (rho)
         if kernel == 'gaussian':
-            # CANE
-            from scipy.stats import skewnorm
-
-            #a = 0.0
-            #x = self.dist/self.kernel_radius
-            #kernel_matrix = np.zeros((len(self.trajs_merged),len(self.trajs_merged)))
-            #thrs = 0.5*(np.max(self.trajs_merged) + np.min(self.trajs_merged))
-            ## x < mean - samples above
-            #inds = (self.trajs_merged.reshape(-1,1) < thrs) * (self.trajs_merged.reshape(-1,1) < self.trajs_merged.reshape(1,-1))
-            #kernel_matrix[inds] = skewnorm.pdf(x[inds], -a)
-            ## x < mean - samples below
-            #inds = (self.trajs_merged.reshape(-1,1) < thrs) * (self.trajs_merged.reshape(-1,1) > self.trajs_merged.reshape(1,-1))
-            #kernel_matrix[inds] = skewnorm.pdf(x[inds], -a)
-            ## x > mean - samples above
-            #inds = (self.trajs_merged.reshape(-1,1) > thrs) * (self.trajs_merged.reshape(-1,1) < self.trajs_merged.reshape(1,-1))
-            #kernel_matrix[inds] = skewnorm.pdf(x[inds], a)
-            ## x > mean - samples below
-            #inds = (self.trajs_merged.reshape(-1,1) > thrs) * (self.trajs_merged.reshape(-1,1) > self.trajs_merged.reshape(1,-1))
-            #kernel_matrix[inds] = skewnorm.pdf(x[inds], a)
-            #kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
-
-            #kernel_matrix = np.exp(-np.power(self.dist/self.kernel_radius,2.0))
-            #thrs = 0.5*(np.max(self.trajs_merged) + np.min(self.trajs_merged))
-            #kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
-            #sample_below_mean_pair_above = (self.trajs_merged.reshape(-1,1) < thrs) * (self.trajs_merged.reshape(-1,1) < self.trajs_merged.reshape(1,-1))
-            #sample_above_mean_pair_below = (self.trajs_merged.reshape(-1,1) > thrs) * (self.trajs_merged.reshape(-1,1) > self.trajs_merged.reshape(1,-1))
-            #samples_to_keep = sample_below_mean_pair_above + sample_above_mean_pair_below
-            #kernel_matrix[np.logical_not(samples_to_keep)] = 0.0
-
-            kernel_matrix = np.exp(-np.power(self.dist/self.kernel_radius,2.0))
-            kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
-
-            #dist_average = np.abs(np.log2(self.trajs_merged.reshape(1,-1)) - np.log2(np.mean(self.trajs_merged))) * np.ones((len(self.trajs_merged),len(self.trajs_merged)))
-            #module_matrix = np.exp(-np.power(dist_average/(0.1*np.max(dist_average)),2.0))
-            #kernel_matrix *= module_matrix
-
-
+            self.kernel_matrix = np.exp(-np.power(self.dist/self.kernel_radius,2.0))
+            #self.kernel_matrix[np.eye(self.kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
         elif kernel == 'square':
-            kernel_matrix = (self.dist < self.kernel_radius)
-            kernel_matrix[np.eye(kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
+            self.kernel_matrix = (self.dist < self.kernel_radius)
+            self.kernel_matrix[np.eye(self.kernel_matrix.shape[0]).astype(bool)] = 0.0 # this is to skip the distance from itself
         else:
             raise ValueError('ERROR: wrong kernel parameter')
-        self.rho = np.sum(kernel_matrix, axis = 1)
+        self.rho = np.sum(self.kernel_matrix, axis = 1)
         #--- Computing distances from higher density samples (delta)
         ordrho = np.argsort(self.rho)[-1::-1]
         self.nneigh[ordrho[0]] = ordrho[0] # arbitrary convention: for the point with highest density, the neighbour at with higher density is itself
-        self.delta[ordrho[0]] = np.max(self.dist[ordrho[0],:]) # arbitrary convention: for the point with highest density set delta to the maximum distance of this point from other samples
+        self.delta[ordrho[0]] = np.max(self.dist[np.isfinite(self.dist)]) # arbitrary convention: for the point with highest density set delta to the maximum distance of this point from other samples
         for i in range(1,self.n_frames()):
             # ordrho[i] is the index of the sample, in this way the samples are analyzed in order of decreasing density
             # ordrho[:i] are the indexes of all the samples with densities higher than sample ordrho[i]
             i_closest_sample_higher_density = ordrho[np.argmin(self.dist[ordrho[i],ordrho[:i]])] # index of the same at minimum distance from sample ordrho[i] among the ones with with higher densities
             self.delta[ordrho[i]] = self.dist[ordrho[i], i_closest_sample_higher_density]
             self.nneigh[ordrho[i]] = i_closest_sample_higher_density  # the neighbour is the closest point among the ones with higher density
+            if (self.rho[ordrho[i]] > self.rho[self.nneigh[ordrho[i]]]):
+                print(self.rho[ordrho[i]],' ',self.rho[self.nneigh[ordrho[i]]])
+                exit()
         rho_norm = (self.rho - np.min(self.rho)) / (np.max(self.rho) - np.min(self.rho))
         delta_norm = (self.delta - np.min(self.delta)) / (np.max(self.delta) - np.min(self.delta))
         #--- Plotting rho-delta relation
@@ -1012,7 +1020,7 @@ class DensityPeaks(ClusterSKlearn):
         i_next = 1
         while i_prev < (len(rho_edges)-1):
             inds_sample_bin = (rho_norm_log > rho_edges[i_prev]) * (rho_norm_log <= rho_edges[i_next]) * np.isfinite(rho_norm_log) * np.isfinite(delta_norm_log)
-            while np.sum(inds_sample_bin) < 10:
+            while (np.sum(inds_sample_bin) < 10) and (i_next < len(rho_edges)-1):
                 i_next += 1
                 inds_sample_bin = (rho_norm_log > rho_edges[i_prev]) * (rho_norm_log <= rho_edges[i_next]) * np.isfinite(rho_norm_log) * np.isfinite(delta_norm_log)
             rho_edges_new.append(rho_edges[i_prev])
@@ -1138,15 +1146,35 @@ class DensityPeaks(ClusterSKlearn):
                 ax1 = f.add_subplot(211)
                 ax1.plot(self.trajs_merged, rho_norm_log,'.')
                 plt.ylabel('rho_norm_log')
-                ax1 = f.add_subplot(212)
-                ax1.plot(self.trajs_merged, delta_norm_log,'.')
+                ax2 = f.add_subplot(212)
+                ax2.plot(self.trajs_merged, delta_norm_log,'.')
                 plt.xlabel('Feature')
                 plt.ylabel('delta_norm_log')
                 pdf.savefig()
+                plt.sca(ax1)
+                plt.xscale('log')
+                plt.sca(ax2)
+                plt.xscale('log')
+                pdf.savefig()
                 plt.close()
         if isinstance(ns_clusters,int) or isinstance(ns_clusters,np.int64) : # if a number of clusters was chosen, return the ones in lowest probability regions
-            #self.ind_cluster_centers = np.argsort(probs_gmm)[0:ns_clusters]
-            self.ind_cluster_centers = np.argsort(energies)[-ns_clusters:]
+            #self.ind_cluster_centers = np.argsort(energies)[-ns_clusters:]
+            self.ind_cluster_centers = [ordrho[0],] # first add the highest density point, that is always included among the cluster centers
+            index_candidates = np.argsort(energies)[-1::-1]
+            while len(self.ind_cluster_centers) < ns_clusters: # go on until all the clusters were added
+                # search for the next candidate that is not already included in self.ind_cluster_centers
+                # everytime it starts from 0 because it is possible to skip some candidates in the next loop
+                i_center = 0
+                while index_candidates[i_center] in self.ind_cluster_centers:
+                    i_center += 1
+                # search is there's any point (not already included in self.ind_cluster_centers) that is higher both in rho and delta
+                index_candidate = index_candidates[i_center]
+                for i_sample in range(self.n_frames()):
+                    if (i_sample != index_candidate) and (i_sample not in self.ind_cluster_centers):
+                        if (self.rho[i_sample] > self.rho[index_candidate]) and (self.delta[i_sample] > self.delta[index_candidate]):
+                            print('WARNING: switching cluster center with better sample')
+                            index_candidate = i_sample
+                self.ind_cluster_centers.append(index_candidate)
         elif n_stds_delta is not None: # if n_stds_delta was defined return the ones above it
             self.ind_cluster_centers = ind_cluster_centers
         else: # in this case a list of clusters was provided, return the energies for all of them
@@ -1340,6 +1368,7 @@ class DensityPeaks(ClusterSKlearn):
             print('Manually selected clusters {0:d}'.format(len(self.ind_cluster_centers)))
         #--- Select clusters
         if self.clusters_analogic.size == 0: # This is needed when running multiple fit changing the halo
+            self.dtrajs_merged = -1*np.ones(self.n_frames()).astype(int)
             n_discovered_clusters = 0
             for i in range(self.n_frames()):
                 if i in self.ind_cluster_centers:
@@ -1354,14 +1383,14 @@ class DensityPeaks(ClusterSKlearn):
             ax1_all.plot(rho_norm,delta_norm,'.k', markersize = 1.0)
             ax1_all.plot(rho_norm[self.ind_cluster_centers],delta_norm[self.ind_cluster_centers],'kx', markersize = 4.0)
             if self.labels_merged is not None:
-                for label in range(self.n_labels()):
+                for i_label, label in enumerate(self.list_labels()):
                     f = plt.figure()
                     ax1 = f.add_subplot(1,1,1)
                     inds = (self.labels_merged == label)
                     ax1.plot(rho_norm,delta_norm,'.k', markersize = 1.0)
                     ax1.plot(rho_norm[self.ind_cluster_centers],delta_norm[self.ind_cluster_centers],'kx', markersize = 4.0)
-                    ax1.plot(rho_norm[inds],delta_norm[inds],'o',color=settings.colors[label%len(settings.colors)], markersize = 2.0)
-                    ax1_all.plot(rho_norm[inds],delta_norm[inds],'o',color=settings.colors[label%len(settings.colors)], markersize = 2.0)
+                    ax1.plot(rho_norm[inds],delta_norm[inds],'o',color=settings.colors[i_label%len(settings.colors)], markersize = 2.0)
+                    ax1_all.plot(rho_norm[inds],delta_norm[inds],'o',color=settings.colors[i_label%len(settings.colors)], markersize = 2.0)
                     plt.xlabel('rho_norm')
                     plt.ylabel('delta_norm')
                     plt.title('label {0:d} ({1:d} samples)'.format(label, np.sum(inds)))
@@ -1377,12 +1406,16 @@ class DensityPeaks(ClusterSKlearn):
         ordrho = np.argsort(self.rho)[-1::-1]
         for i in range(self.n_frames()):
             if self.dtrajs_merged[ordrho[i]] == -1:
+                if self.dtrajs_merged[self.nneigh[ordrho[i]]] == -1:
+                    raise ValueError('ERROR: something went wrong in rho ordering')
                 self.dtrajs_merged[ordrho[i]] = self.dtrajs_merged[self.nneigh[ordrho[i]]]
+                dist_0 = np.abs( np.log2(self.trajs_merged[ordrho[i]]) - np.log2(self.clusters_analogic[0,0]) ) 
+                dist_1 = np.abs( np.log2(self.trajs_merged[ordrho[i]]) - np.log2(self.clusters_analogic[1,0]) ) 
         #---- Assigning points to halo
         if self.verbose > 0:
-            print('Assigning samples to {0:d} clusters with halo {1:f}'.format(self.n_clusters(),halo))
+            print('Assigning samples to {0:d} clusters with halo {1:f}'.format(self.n_clusters,halo))
         mask = np.logical_not(np.eye(self.dist.shape[0]).astype('bool'))
-        for i_cluster in range(self.n_clusters()):
+        for i_cluster in range(self.n_clusters):
             bnd_rhos = []
             i_samples_cluster_bool = (self.dtrajs_merged == i_cluster) # True if sample of cluster i_cluster
             i_others = np.logical_not(i_samples_cluster_bool) # True for samples not in the cluster
@@ -1395,6 +1428,165 @@ class DensityPeaks(ClusterSKlearn):
                 bnd_rhos = np.array(bnd_rhos)
                 i_samples_outside_border = i_samples_cluster[self.rho[i_samples_cluster_bool] < halo*np.mean(bnd_rhos)]
                 self.dtrajs_merged[i_samples_outside_border] = -1
+    def predict(self, traj):
+        for i_traj_internal, traj_internal in enumerate(self.trajs): # search for traj among self.trajs
+            if self.n_frames_traj(traj_internal) == len(traj):
+                if np.all(np.prod(traj_internal == traj, axis = 1).astype(bool)): # this is the internal trajectory
+                    i_start, i_end = self.get_index_merged(i_traj_internal)
+                    dtraj = self.dtrajs_merged[i_start:i_end]
+                    if self.fuzzy:
+                        prob = np.zeros((self.n_frames(), self.n_clusters))
+                        for i_cluster in range(self.n_clusters):
+                            prob[:,i_cluster] = np.sum(self.kernel_matrix[:,dtraj == i_cluster], axis = 1)
+                        den = np.sum(prob, axis = 1).reshape((self.n_frames(),1))
+                        prob = prob / den
+                        return np.array(dtraj), prob
+                    else:
+                        return np.array(dtraj)
+        raise ValueError('ERROR: missing trajectory')
+
+class TrainingKNN(Cluster):
+    def __init__(self, trajs = None, labels = [], verbose = 0):
+        super(TrainingKNN, self).__init__(trajs, labels, False, verbose)
+        self.name = 'DP + KNN'
+    def fit(self, n_clusters = 2, radii = 1.0, training_samples = 2000, n_rounds = 2000, min_n_samples_robust = 5, n_samples_per_cluster = 40, n_neighbors = 5, metric = 'euclidean', pdf = None):
+        """
+        training_samples:   int
+            Number of samples used for DensityPeaks
+        min_n_samples_robuts    int
+            The classification of a sample is considered robust is the sample was classified
+            into the same cluster for more than min_n_sample_robust times
+        n_samples_per_cluster   int
+            Number of samples of each cluster kept in the old set
+        """
+        from sklearn.neighbors import KNeighborsClassifier
+        #--- check paramters
+        if not isinstance(n_clusters, (int, float)):
+            raise ValueError('ERROR: wrong parameters for TrainingKNN')
+        #--- if number of samples is lower than training samples, run density peaks
+        if training_samples >= self.n_frames():
+            raise ValueError('ERROR: wrong parameters for TrainingKNN, training_samples {0:d} Vs frames {1:d}'.format(training_samples, self.n_frames()))
+        #--- create the 1st training set
+        clusters_training = -1*np.ones(self.n_frames()) # labels of the training set
+        counts_training = np.zeros(self.n_frames()) # How many times a sample was in the training set
+        ind_selected_samples_old = np.random.choice(self.n_frames(), training_samples, replace=False) # these samples will be used for clustering with DP
+        data_training_old = self.trajs_merged[ind_selected_samples_old,:] # data for samples used for clustering with DP
+        #--- run clustering for the 1st training set
+        training = DensityPeaks(trajs = [data_training_old], verbose = self.verbose)
+        training.search_cluster_centers(radii = radii, metric = metric, ns_clusters = n_clusters, n_stds_delta = None, manual_refine = False)
+        training.fit_predict()
+        #--- update the training set
+        clusters_old = training.dtrajs_merged
+        clusters_training[ind_selected_samples_old] = clusters_old
+        counts_training[ind_selected_samples_old] += 1
+        for i_round in range(1,n_rounds):
+            #--- create the n-th training set
+            ind_selected_samples_new = np.random.choice(self.n_frames(), training_samples, replace=False)
+            counts_training[ind_selected_samples_old] += 1
+            counts_training[ind_selected_samples_new] += 1
+            data_training_new = self.trajs_merged[ind_selected_samples_new,:]
+            #--- run clustering for the 1st training set
+            training = DensityPeaks(trajs = [data_training_old, data_training_new], verbose = self.verbose)
+            training.search_cluster_centers(radii = radii, metric = metric, ns_clusters = n_clusters, n_stds_delta = None, manual_refine = False)
+            training.fit_predict()
+            #--- update the global training set
+            clusters_new = training.dtrajs_merged
+            #--- check if DensityPeaks worked properly, otherwise skip this round
+            if -1 in clusters_new:
+                continue
+            #--- couple new clusters with previous ones
+            count_matrix = np.zeros((n_clusters, n_clusters))
+            for i in range(n_clusters):
+                ind_i_1 = np.where(clusters_old == i)[0]
+                for j in range(n_clusters):
+                    count_matrix[i,j] = np.sum(clusters_new[ind_i_1] != j)
+            inds_1, inds_2 = linear_sum_assignment(count_matrix)
+            inds_new_2_old = list(inds_2)
+            for i, ind in enumerate(ind_selected_samples_old):
+                if clusters_training[ind] != inds_new_2_old.index(clusters_new[i]): # if they belong to different clusters decrease the counter
+                    #print 'Removing {0:d} from training'.format(ind)
+                    #clusters_training[ind] = max(clusters_training[ind]-2,-1)
+                    counts_training[ind] = max(counts_training[ind]-2,0)
+            for i, ind in enumerate(ind_selected_samples_new):
+                if clusters_training[ind] == -1: # it's the first time this sample was assigned to a cluster
+                    clusters_training[ind] = inds_new_2_old.index(clusters_new[i+len(ind_selected_samples_old)])
+                elif clusters_training[ind] > -1:
+                    if clusters_training[ind] !=  inds_new_2_old.index(clusters_new[i+len(ind_selected_samples_old)]): # if they belong to different clusters decrease the counter
+                        #clusters_training[ind] = max(clusters_training[ind]-2,-1)
+                        counts_training[ind] = max(counts_training[ind]-2,0)
+            inds_training = np.where(clusters_training >= 0)[0]
+            if self.verbose > 0:
+                print('Number of samples with some coherent classification = ',len(inds_training))
+            inds_training_robust = inds_training[np.where(counts_training[inds_training] > min_n_samples_robust)[0]]
+            if self.verbose > 0:
+                print('Number of samples with robust classification = ',len(inds_training_robust))
+            indexes, counts = np.unique(clusters_training[inds_training_robust], return_counts = True)
+            if self.verbose > 0:
+                print('Number of samples with robust classification per cluster = ',counts)
+            ind_selected_samples_old = []
+            for i_cluster in range(n_clusters):
+                #--- first add some robust samples
+                indexes_cluster = np.where(clusters_training[inds_training_robust] == int(i_cluster))[0]
+                if len(indexes_cluster) > int(0.5*n_samples_per_cluster):
+                    indexes_cluster_random_selected = list(inds_training_robust[np.random.choice(indexes_cluster, int(0.5*n_samples_per_cluster), replace=False)])
+                    if self.verbose > 0:
+                        print('Adding {0:d} robust samples'.format(int(0.5*n_samples_per_cluster)))
+                else:
+                    if self.verbose > 0:
+                        print('Adding {0:d} robust samples'.format(len(inds_training_robust[indexes_cluster])))
+                    indexes_cluster_random_selected = list(inds_training_robust[indexes_cluster])
+                #--- then add other samples
+                n_samples_missing = (n_samples_per_cluster - len(indexes_cluster_random_selected))
+                if n_samples_missing:
+                    if self.verbose > 0:
+                        print('Still need to add {0:d} samples'.format(n_samples_missing))
+                    indexes_cluster = inds_training[np.where((clusters_training[inds_training] == int(i_cluster)) & (counts_training[inds_training] < min_n_samples_robust))[0]]
+                    if self.verbose > 0:
+                        print('Samples available: ',len(indexes_cluster))
+                    if len(indexes_cluster) > n_samples_missing:
+                        inds = indexes_cluster[np.argsort(counts_training[indexes_cluster])[-n_samples_missing:]]
+                        indexes_cluster_random_selected.extend(inds)
+                        #indexes_cluster_random_selected.extend(np.random.choice(indexes_cluster, n_samples_missing, replace=False))
+                    else:
+                        indexes_cluster_random_selected.extend(indexes_cluster)
+                ind_selected_samples_old.extend(indexes_cluster_random_selected)
+            data_training_old = self.trajs_merged[ind_selected_samples_old,:]
+            clusters_old = clusters_training[ind_selected_samples_old]
+            if (len(set(clusters_training[inds_training_robust].astype(int))) == n_clusters):
+                if len(inds_training_robust) < (n_clusters*n_samples_per_cluster):
+                    if self.verbose > 0:
+                        print('Too few training samples: ',len(inds_training_robust))
+                elif np.min(counts) < 5*n_neighbors:
+                    if self.verbose > 0:
+                        print('Samples are still missing, trying another round ', counts)
+                else:
+                    inds_training = inds_training_robust
+                    break
+            else:
+                print('Clusters are still missing, trying another round', counts)
+        else:
+            if n_rounds > 1:
+                raise ValueError('ERROR: increase the maximum number of iterations')
+        data_training = self.trajs_merged[inds_training_robust,:]
+        clusters_training = clusters_training[inds_training_robust].astype(int)
+        #print('data_training = ',data_training)
+        #print('clusters_training = ',clusters_training)
+        #f = plt.figure()
+        #ax = f.add_subplot(111)
+        #ax.scatter(data_training[:,0],data_training[:,1], c = clusters_training)
+        #plt.show()
+        #--- Clustering with KNN
+        print('Clustering data with KNN algorithm')
+        clustering = KNeighborsClassifier(n_neighbors = n_neighbors)
+        clustering.fit(data_training, clusters_training)
+        self.dtrajs_merged = clustering.predict(self.trajs_merged)
+        #print('self.dtrajs_merged = ',self.dtrajs_merged)
+        #print('self.dtrajs_merged = ',self.dtrajs_merged.shape)
+        #self.bin_centers = np.empty((len(set(dtraj)),self.n_dims()))
+        #for i_cluster in range(len(set(dtraj))):
+        #    self.bin_centers[i_cluster,:] = np.mean(self.trajs[0][dtraj == i_cluster,:],axis = 0)
+        #self.dtrajs = [dtraj]
+        self.fit_done = True
     def predict(self, traj):
         for i_traj_internal, traj_internal in enumerate(self.trajs): # search for traj among self.trajs
             if self.n_frames_traj(traj_internal) == len(traj):
@@ -1575,162 +1767,6 @@ class DensityPeaks(ClusterSKlearn):
 #            exit()
 #        return mapping
 
-class TrainingKNN(ClusterSKlearn):
-    def __init__(self, trajs = None, labels = [], verbose = 0):
-        super(TrainingKNN, self).__init__(trajs, labels, verbose)
-        self.name = 'DP + KNN'
-    def fit(self, n_clusters, percent = 10.0, training_samples = 10000, n_rounds = 100, min_n_samples_robust = 4, n_samples_per_cluster = 20, n_neighbors = 3, pdf = None):
-        """
-        training_samples:   int
-            Number of samples used for DensityPeaks
-        min_n_samples_robuts    int
-            The classification of a sample is considered robust is the sample was classified
-            into the same cluster for more than min_n_sample_robust times
-        n_samples_per_cluster   int
-            Number of samples of each cluster kept in the old set
-        """
-        from sklearn.neighbors import KNeighborsClassifier
-        #--- check paramters
-        if (not (isinstance(n_clusters, int) or isinstance(n_clusters,float))) or (not (isinstance(percent, int) or isinstance(percent,float))):
-            raise ValueError('ERROR: wrong paramters for TrainingKNN')
-        #--- if number of samples is lower than training samples, run density peaks
-        if training_samples >= self.n_frames():
-            print('Warning: number of samples is lower than training_samples, running DensityPeaks')
-            cluster_method = DensityPeaks(self.trajs, self.labels, self.verbose)
-            cluster_method.search_cluster_centers(percents = percent, ns_clusters = n_clusters, pdf = pdf)
-            cluster_method.fit()
-            self.fit_done = True
-            self.dtrajs_merged = cluster_method.dtrajs_merged
-            return
-        #--- create the 1st training set
-        clusters_training = -1*np.ones(self.n_frames()) # labels of the training set
-        counts_training = np.zeros(self.n_frames()) # How many times a sample was in the training set
-        ind_selected_samples_old = np.random.choice(self.n_frames(), training_samples, replace=False) # these samples will be used for clustering with DP
-        data_training_old = self.trajs_merged[ind_selected_samples_old,:] # data for samples used for clustering with DP
-        #--- run clustering for the 1st training set
-        training = DensityPeaks(trajs = [data_training_old], verbose = self.verbose)
-        training.search_cluster_centers(percents = percent, metric = 'euclidean', ns_clusters = n_clusters, n_stds_delta = None, manual_refine = False)
-        training.fit_predict()
-        #--- update the training set
-        clusters_old = training.dtrajs_merged
-        clusters_training[ind_selected_samples_old] = clusters_old
-        counts_training[ind_selected_samples_old] += 1
-        for i_round in range(1,n_rounds):
-            #--- create the n-th training set
-            ind_selected_samples_new = np.random.choice(self.n_frames(), training_samples, replace=False)
-            counts_training[ind_selected_samples_old] += 1
-            counts_training[ind_selected_samples_new] += 1
-            data_training_new = self.trajs_merged[ind_selected_samples_new,:]
-            #--- run clustering for the 1st training set
-            training = DensityPeaks(trajs = [data_training_old, data_training_new], verbose = self.verbose)
-            training.search_cluster_centers(percents = percent, metric = 'euclidean', ns_clusters = n_clusters, n_stds_delta = None, manual_refine = False)
-            training.fit_predict()
-            #--- update the global training set
-            clusters_new = training.dtrajs_merged
-            #--- check if DensityPeaks worked properly, otherwise skip this round
-            if -1 in clusters_new:
-                continue
-            #--- couple new clusters with previous ones
-            count_matrix = np.zeros((n_clusters, n_clusters))
-            for i in range(n_clusters):
-                ind_i_1 = np.where(clusters_old == i)[0]
-                for j in range(n_clusters):
-                    count_matrix[i,j] = np.sum(clusters_new[ind_i_1] != j)
-            inds_1, inds_2 = linear_sum_assignment(count_matrix)
-            inds_new_2_old = list(inds_2)
-            for i, ind in enumerate(ind_selected_samples_old):
-                if clusters_training[ind] != inds_new_2_old.index(clusters_new[i]): # if they belong to different clusters decrease the counter
-                    #print 'Removing {0:d} from training'.format(ind)
-                    #clusters_training[ind] = max(clusters_training[ind]-2,-1)
-                    counts_training[ind] = max(counts_training[ind]-2,0)
-            for i, ind in enumerate(ind_selected_samples_new):
-                if clusters_training[ind] == -1: # it's the first time this sample was assigned to a cluster
-                    clusters_training[ind] = inds_new_2_old.index(clusters_new[i+len(ind_selected_samples_old)])
-                elif clusters_training[ind] > -1:
-                    if clusters_training[ind] !=  inds_new_2_old.index(clusters_new[i+len(ind_selected_samples_old)]): # if they belong to different clusters decrease the counter
-                        #clusters_training[ind] = max(clusters_training[ind]-2,-1)
-                        counts_training[ind] = max(counts_training[ind]-2,0)
-            inds_training = np.where(clusters_training >= 0)[0]
-            if self.verbose > 0:
-                print('Number of samples with some coherent classification = ',len(inds_training))
-            inds_training_robust = inds_training[np.where(counts_training[inds_training] > min_n_samples_robust)[0]]
-            if self.verbose > 0:
-                print('Number of samples with robust classification = ',len(inds_training_robust))
-            indexes, counts = np.unique(clusters_training[inds_training_robust], return_counts = True)
-            if self.verbose > 0:
-                print('Number of samples with robust classification per cluster = ',counts)
-            ind_selected_samples_old = []
-            for i_cluster in range(n_clusters):
-                #--- first add some robust samples
-                indexes_cluster = np.where(clusters_training[inds_training_robust] == int(i_cluster))[0]
-                if len(indexes_cluster) > int(0.5*n_samples_per_cluster):
-                    indexes_cluster_random_selected = list(inds_training_robust[np.random.choice(indexes_cluster, int(0.5*n_samples_per_cluster), replace=False)])
-                    if self.verbose > 0:
-                        print('Adding {0:d} robust samples'.format(int(0.5*n_samples_per_cluster)))
-                else:
-                    if self.verbose > 0:
-                        print('Adding {0:d} robust samples'.format(len(inds_training_robust[indexes_cluster])))
-                    indexes_cluster_random_selected = list(inds_training_robust[indexes_cluster])
-                #--- then add other samples
-                n_samples_missing = (n_samples_per_cluster - len(indexes_cluster_random_selected))
-                if n_samples_missing:
-                    if self.verbose > 0:
-                        print('Still need to add {0:d} samples'.format(n_samples_missing))
-                    indexes_cluster = inds_training[np.where((clusters_training[inds_training] == int(i_cluster)) & (counts_training[inds_training] < min_n_samples_robust))[0]]
-                    if self.verbose > 0:
-                        print('Samples available: ',len(indexes_cluster))
-                    if len(indexes_cluster) > n_samples_missing:
-                        inds = indexes_cluster[np.argsort(counts_training[indexes_cluster])[-n_samples_missing:]]
-                        indexes_cluster_random_selected.extend(inds)
-                        #indexes_cluster_random_selected.extend(np.random.choice(indexes_cluster, n_samples_missing, replace=False))
-                    else:
-                        indexes_cluster_random_selected.extend(indexes_cluster)
-                ind_selected_samples_old.extend(indexes_cluster_random_selected)
-            data_training_old = self.trajs_merged[ind_selected_samples_old,:]
-            clusters_old = clusters_training[ind_selected_samples_old]
-            if (len(set(clusters_training[inds_training_robust].astype(int))) == n_clusters):
-                if len(inds_training_robust) < 100:
-                    if self.verbose > 0:
-                        print('Too few training samples: ',len(inds_training_robust))
-                elif np.min(counts) < 5*n_neighbors:
-                    if self.verbose > 0:
-                        print('Samples are still missing, trying another round ', counts)
-                else:
-                    inds_training = inds_training_robust
-                    break
-            else:
-                print('Clusters are still missing, trying another round', counts)
-        else:
-            if n_rounds > 1:
-                raise ValueError('ERROR: increase the maximum number of iterations')
-        data_training = self.trajs_merged[inds_training_robust,:]
-        clusters_training = clusters_training[inds_training_robust].astype(int)
-        #print('data_training = ',data_training)
-        #print('clusters_training = ',clusters_training)
-        #f = plt.figure()
-        #ax = f.add_subplot(111)
-        #ax.scatter(data_training[:,0],data_training[:,1], c = clusters_training)
-        #plt.show()
-        #--- Clustering with KNN
-        print('Clustering data with KNN algorithm')
-        clustering = KNeighborsClassifier(n_neighbors = n_neighbors)
-        clustering.fit(data_training, clusters_training)
-        self.dtrajs_merged = clustering.predict(self.trajs_merged)
-        #print('self.dtrajs_merged = ',self.dtrajs_merged)
-        #print('self.dtrajs_merged = ',self.dtrajs_merged.shape)
-        #self.bin_centers = np.empty((len(set(dtraj)),self.n_dims()))
-        #for i_cluster in range(len(set(dtraj))):
-        #    self.bin_centers[i_cluster,:] = np.mean(self.trajs[0][dtraj == i_cluster,:],axis = 0)
-        #self.dtrajs = [dtraj]
-        self.fit_done = True
-    def predict(self, traj):
-        for i_traj_internal, traj_internal in enumerate(self.trajs): # search for traj among self.trajs
-            if self.n_frames_traj(traj_internal) == len(traj):
-                if np.all(np.prod(traj_internal == traj, axis = 1).astype(bool)): # this is the internal trajectory
-                    i_start, i_end = self.get_index_merged(i_traj_internal)
-                    return np.array(self.dtrajs_merged[i_start:i_end])
-        raise ValueError('ERROR: missing trajectory')
-
 
 def make_data(kind, n_samples = 1000, n_samples_rare = 10):
     """
@@ -1758,6 +1794,7 @@ def make_data(kind, n_samples = 1000, n_samples_rare = 10):
         y = np.hstack((y,3*np.ones(n_samples_rare)))
     elif kind == 'blobs':
         X,y = datasets.make_blobs(n_samples = n_samples, centers = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]], cluster_std = [0.25, 0.25, 0.25])
+        y += 1
     elif kind == 'gates':
         X = np.array([0.75,1.0]) + 0.15*np.random.randn(n_samples,2)
         y = np.zeros(n_samples)
@@ -1815,16 +1852,18 @@ if __name__ == '__main__':
 
     pdf = PdfPages('./test.pdf')
 
-    X, y = make_data('1d_gate', 10000, 1)
-    #X, y = make_data('moons+', 1000, 100)
+    X, y = make_data('blobs', 100000, 100)
 
-    C = DensityPeaks(trajs = X, labels = y, verbose = 2)
-    C.search_cluster_centers(ns_clusters = np.arange(2,10,1), radii  = 0.5, metric = 'logarithmic', pdf = pdf)
-    #C.search_cluster_centers(ns_clusters = np.arange(3,10,1), radii  = 0.5, metric = 'euclidean', pdf = pdf)
-    C.fit_predict()
-
-    #C.score()
-    C.show(pdf, plot_hists = True)
+    #C = DensityPeaks(trajs = X, labels = y, fuzzy = False, verbose = 2)
+    ##C.search_cluster_centers(ns_clusters = np.arange(2,10,1), radii  = 0.5, metric = 'logarithmic', pdf = pdf)
+    #C.search_cluster_centers(ns_clusters = 3, radii  = 0.5, metric = 'euclidean', pdf = pdf)
+    #C.fit_predict()
+    #C.show(pdf, plot_hists = True, plot_labels = True)
     #print(C)
+
+    C = TrainingKNN(trajs = X, labels = y, verbose = 2)
+    C.fit_predict(n_clusters = 3, radii = [0.25, 0.5], training_samples = 1000, metric = 'manhattan', pdf = pdf)
+    C.show(pdf, plot_hists = True, plot_labels = True)
+    print(C)
 
     pdf.close()
